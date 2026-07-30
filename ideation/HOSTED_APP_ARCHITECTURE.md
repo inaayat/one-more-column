@@ -2,7 +2,7 @@
 
 **Status:** Draft (revised for inaayat.xyz)  
 **Belongs to:** [Part B](./CAPACITY_PLANNER_SPECIFICATION.md#part-b--flexible-planning-platform-aspirational) of [`CAPACITY_PLANNER_SPECIFICATION.md`](./CAPACITY_PLANNER_SPECIFICATION.md)  
-**Sequencing detail:** [`BUILD_PLAN.md`](./BUILD_PLAN.md) Track H  
+**Sequencing detail:** [`../BUILD_PLAN.md`](../BUILD_PLAN.md) Track H  
 **Not:** Part A near-term SOX Capacity Planner delivery on GitHub Pages (that remains Pages-oriented until/unless Track H cutover)  
 **Styling reference:** [`templates/blank-styling-template.html`](./templates/blank-styling-template.html)  
 **Production URL:** `https://inaayat.xyz/one-more-column/`  
@@ -10,7 +10,7 @@
 
 This is the **technical deep dive for Part B / Track H**: what a flexible planning platform looks like hosted as a normal web application with a persistent database and authentication — specifically on **inaayat.xyz** via a **separate Vercel project + main-site path rewrites**, reusing **Neon Auth** exactly like AMC A-Lister.
 
-Use **Part A** of the main spec for SOX Capacity Planner behavior and next steps. Use **[`BUILD_PLAN.md`](./BUILD_PLAN.md)** for phased delivery. Use **this document** for runtime architecture.
+Use **Part A** of the main spec for SOX Capacity Planner behavior and next steps. Use **[`../BUILD_PLAN.md`](../BUILD_PLAN.md)** for phased delivery. Use **this document** for runtime architecture.
 
 ---
 
@@ -458,4 +458,4 @@ For local auth against production Neon Auth, follow the same approach as AMC A-L
 
 ---
 
-*When implementation starts, treat this document as the deployment/runtime architecture, [`BUILD_PLAN.md`](./BUILD_PLAN.md) as sequencing, and the main specification as the product/domain bible. Keep all three in sync when decisions land.*
+*When implementation starts, treat this document as the deployment/runtime architecture, [`../BUILD_PLAN.md`](../BUILD_PLAN.md) as sequencing, and the main specification as the product/domain bible. Keep all three in sync when decisions land.*

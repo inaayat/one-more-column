@@ -2,10 +2,10 @@
 
 **Status:** Working plan (derived from Phase 0 artifacts + inaayat.xyz hosting decision)  
 **Sources (normative):**
-- [`CAPACITY_PLANNER_SPECIFICATION.md`](./CAPACITY_PLANNER_SPECIFICATION.md) — Part A (SOX) + Part B (flexible platform)
-- [`HOSTED_APP_ARCHITECTURE.md`](./HOSTED_APP_ARCHITECTURE.md) — Part B runtime / SoR / cutover (updated for Neon Auth + path proxy)
-- [`config.excel.example.json`](./config.excel.example.json) — Non-Jira SharePoint embed/edit contract
-- [`templates/blank-styling-template.html`](./templates/blank-styling-template.html) — Mulish design tokens + layout chrome
+- [`ideation/CAPACITY_PLANNER_SPECIFICATION.md`](./ideation/CAPACITY_PLANNER_SPECIFICATION.md) — Part A (SOX) + Part B (flexible platform)
+- [`ideation/HOSTED_APP_ARCHITECTURE.md`](./ideation/HOSTED_APP_ARCHITECTURE.md) — Part B runtime / SoR / cutover (updated for Neon Auth + path proxy)
+- [`ideation/config.excel.example.json`](./ideation/config.excel.example.json) — Non-Jira SharePoint embed/edit contract
+- [`ideation/templates/blank-styling-template.html`](./ideation/templates/blank-styling-template.html) — Mulish design tokens + layout chrome
 - **Production target:** `https://inaayat.xyz/one-more-column/` — same Neon Auth as `inaayat.xyz/amc-a-lister` (`replacing-nerd-jobs`)
 
 **Non-goals for this document:** calendar-day estimates, staffing Gantt charts. Difficulty is expressed as subsystem invasiveness and dependency risk.
@@ -65,8 +65,8 @@ Freeze these names everywhere (Spec A11 Phase 0 exit criteria):
 | Spec Part A | SOX behavior + Excel archaeology | Still need `FieldDefinition` draft YAML from All Up columns |
 | Spec Part B | Flexible thesis + domain model | Profile schemas (`sox-bp`, later `ops`, `project`) TBD |
 | Hosted architecture | Stack, tables, API, H0–H3 | **Decided:** Vercel child project + main-site rewrites + Neon Auth (same as AMC A-Lister); remaining: DB schema ownership, preview trusted domains |
-| `config.excel.example.json` | Non-Jira embed/edit URLs only | Expand toward full Excel interchange map (All Up import/export) **or** keep Non-Jira-only and add `config.all_up.example.json` |
-| `templates/blank-styling-template.html` | UI shell + CSS tokens | Use for every new section; preserve split-grid IA |
+| `ideation/config.excel.example.json` | Non-Jira embed/edit URLs only | Expand toward full Excel interchange map (All Up import/export) **or** keep Non-Jira-only and add `config.all_up.example.json` |
+| `ideation/templates/blank-styling-template.html` | UI shell + CSS tokens | Use for every new section; preserve split-grid IA |
 | Live capacity repo (external) | `sync → generate → patch → Pages` | Remains Track A runtime until H cutover |
 
 **Repo hygiene done in this PR:** styling template path aligned to spec (`templates/…`).
@@ -280,7 +280,7 @@ one-more-column/                 ← this git repo, also URL path prefix
     neon-browser-auth.js         ← copy pattern from main site engine/
     …capacity / plan modules…
   icon.svg
-  templates/blank-styling-template.html
+  ideation/templates/blank-styling-template.html
 api/
   one-more-column.js             ← router; or split files
   (exposed as /api/omc-:route)
@@ -411,7 +411,7 @@ Corporate Okta / ECS from the early Hosted Arch draft is **out of scope** for in
 **Key functionality considerations**
 - Extensibility rule: unknown fields → `attributes{}` + registry; new forecast factors register as rules (B3).  
 - Adapter loop: `Provider → normalize → PlanItem store → Rule engine → Capacity engine → Views` (+ optional publishers).  
-- Non-ticket work = `PlanItem` with `source=manual` (B6) — retires SharePoint iframe pattern in `config.excel.example.json`.  
+- Non-ticket work = `PlanItem` with `source=manual` (B6) — retires SharePoint iframe pattern in `ideation/config.excel.example.json`.  
 - One design system across profiles (B9.4).
 
 ---
@@ -443,7 +443,7 @@ Use this as a design review gate for every feature PR:
 ### Excel / interchange
 - [ ] Import validates → previews diff → commits  
 - [ ] Export uses templates; stable logical field names via maps  
-- [ ] Non-Jira config (`config.excel.example.json`) either replaced by PlanItems or kept as transitional embed only  
+- [ ] Non-Jira config (`ideation/config.excel.example.json`) either replaced by PlanItems or kept as transitional embed only  
 - [ ] All Up import trusted before Excel authoring SoR is dropped  
 
 ### UX / design system
@@ -468,16 +468,19 @@ Use this as a design review gate for every feature PR:
 
 ```
 one-more-column/                       ← git repo + URL path
-├── CAPACITY_PLANNER_SPECIFICATION.md
-├── HOSTED_APP_ARCHITECTURE.md
+├── ideation/                          ← Phase 0 specs + design tokens
+│   ├── CAPACITY_PLANNER_SPECIFICATION.md
+│   ├── HOSTED_APP_ARCHITECTURE.md
+│   ├── config.excel.example.json
+│   └── templates/blank-styling-template.html
 ├── BUILD_PLAN.md                      ← this file
 ├── README.md
-├── config.excel.example.json
 ├── package.json                       ← jose, @neondatabase/serverless
 ├── vercel.json                        ← omc- → api/one-more-column rewrites
 ├── index.html                         ← <base href="/one-more-column/" />
 ├── icon.svg
-├── templates/blank-styling-template.html
+├── templates/                         ← app UI shell (copy from ideation/templates when scaffolding)
+│   └── blank-styling-template.html
 ├── engine/
 │   ├── auth.js                        ← AMC A-Lister pattern
 │   ├── neon-browser-auth.js
@@ -563,7 +566,7 @@ Cut authority only on phase boundaries (e.g., RF start or next FY TOD).
 11. Add `one-more-column.vercel.app` as Neon Auth trusted origin for preview deploys?  
 
 **From this repo’s current Excel config**
-12. Expand `config.excel.example.json` into full All Up field map, or add a separate All Up interchange config and keep this file Non-Jira-only?
+12. Expand `ideation/config.excel.example.json` into full All Up field map, or add a separate All Up interchange config and keep this file Non-Jira-only?
 
 ---
 
