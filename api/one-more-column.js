@@ -1,11 +1,26 @@
 import { getAuth } from '../lib/neon-auth.js';
 import { db, ensureSchema } from '../lib/db.js';
+import { handleCycles } from '../lib/handlers/cycles.js';
+import { handlePolicy } from '../lib/handlers/policy.js';
+import { handleResources } from '../lib/handlers/resources.js';
+import { handlePlanItems } from '../lib/handlers/plan-items.js';
+import { handleCapacity } from '../lib/handlers/capacity.js';
 
 export default async function handler(req, res) {
   const route = String(req.query?.route || '').trim();
   switch (route) {
     case 'me':
       return handleMe(req, res);
+    case 'cycles':
+      return handleCycles(req, res);
+    case 'policy':
+      return handlePolicy(req, res);
+    case 'resources':
+      return handleResources(req, res);
+    case 'plan-items':
+      return handlePlanItems(req, res);
+    case 'capacity':
+      return handleCapacity(req, res);
     default:
       res.status(404).json({ error: 'Unknown OMC route.' });
   }

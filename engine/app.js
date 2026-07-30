@@ -1,7 +1,28 @@
 import { initAuth, wireAuthLink, refreshToken } from './auth.js';
-import { meApi } from './api.js';
+import {
+  meApi,
+  cyclesApi,
+  policyApi,
+  resourcesApi,
+  planItemsApi,
+  capacityApi,
+} from './api.js';
 
 const APP_PATH = '/one-more-column/';
+
+const state = {
+  auth: null,
+  me: null,
+  token: null,
+  cycles: [],
+  activeCycleId: null,
+  resources: [],
+  teams: [],
+  policy: null,
+  capacity: null,
+  planItems: [],
+  defaultScenarioId: null,
+};
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -18,7 +39,32 @@ function initials(name, email) {
   return source.slice(0, 2).toUpperCase();
 }
 
-function renderShell({ body }) {
+function currentRoute() {
+  const hash = location.hash.replace(/^#\/?/, '') || 'home';
+  return hash.split('?')[0];
+}
+
+function navigate(route) {
+  location.hash = `#/${route}`;
+}
+
+function renderShell({ body, activeNav = 'home' }) {
+  const navItems = [
+    { id: 'home', label: 'Home' },
+    { id: 'capacity', label: 'Capacity' },
+    { id: 'settings', label: 'Settings' },
+  ];
+  const nav = navItems
+    .map(
+      (item) =>
+        `<a href="#/${item.id}" class="nav-link${activeNav === item.id ? ' active' : ''}">${item.label}</a>`,
+    )
+    .join('');
+
+  const user = state.me?.user || state.auth?.user || {};
+  const displayName = user.name || user.email || 'Signed in';
+  const avatar = initials(user.name, user.email);
+
   return `
     <header class="app-header">
       <div class="header-inner">
@@ -29,14 +75,19 @@ function renderShell({ body }) {
             <div class="app-sub">Flexible capacity planning</div>
           </div>
         </div>
+        <nav class="header-nav" aria-label="Main">${nav}</nav>
         <div class="header-actions">
           <a href="/" class="btn btn-ghost btn-sm">← inaayat.xyz</a>
-          <a href="/account.html" class="btn btn-ghost btn-sm" id="nav-auth-link">Log in</a>
+          <span class="auth-chip">
+            <span class="auth-avatar">${escapeHtml(avatar)}</span>
+            <span>${escapeHtml(displayName)}</span>
+          </span>
+          <a href="/account.html" class="btn btn-ghost btn-sm" id="nav-auth-link">Log out</a>
         </div>
       </div>
     </header>
     <main class="main">
-      <div class="content">${body}</div>
+      <div class="content content-wide">${body}</div>
     </main>
   `;
 }
@@ -47,57 +98,420 @@ function renderSignInPrompt(auth) {
     ? '<div class="token-banner expired"><div><strong>Session expired.</strong> Sign in again to continue.</div></div>'
     : '';
 
+  return `
+    ${reauthNote}
+    <section class="panel">
+      <h1 class="omc-title">One More Column</h1>
+      <p class="omc-lead">Sign in with the same account you use for AMC A-Lister.</p>
+      <p style="margin-top:16px">
+        <a class="btn btn-refresh-solid" href="${loginHref}">Sign in</a>
+      </p>
+    </section>
+  `;
+}
+
+function cycleOptions(selectedId) {
+  if (!state.cycles.length) {
+    return '<option value="">No cycles yet</option>';
+  }
+  return state.cycles
+    .map(
+      (c) =>
+        `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
+    )
+    .join('');
+}
+
+function renderHome() {
+  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
   return renderShell({
+    activeNav: 'home',
     body: `
-      ${reauthNote}
+      <div class="token-banner valid">
+        <span aria-hidden="true">✓</span>
+        <div><strong>H1 ready.</strong> Resources, policies, and manual plan items live in Postgres.</div>
+      </div>
       <section class="panel">
-        <h1 class="omc-title">One More Column</h1>
-        <p class="omc-lead">Hosted capacity planner on inaayat.xyz. Sign in with the same account you use for AMC A-Lister.</p>
-        <ul class="omc-bullets">
-          <li>Same Neon Auth identity (<code>auth.sub</code>) as other inaayat.xyz apps</li>
-          <li>Planning UI shell with design tokens from the blank template</li>
-          <li>Stub <code>/api/omc-me</code> verifies JWT and syncs your user row</li>
-        </ul>
-        <p style="margin-top:16px">
-          <a class="btn btn-refresh-solid" href="${loginHref}">Sign in</a>
-        </p>
+        <h1 class="omc-title">Welcome back</h1>
+        <p class="omc-lead">Shared configuration is stored in Neon Postgres — team membership is no longer local-only.</p>
+        <dl class="omc-identity">
+          <div><dt>Active cycle</dt><dd>${escapeHtml(cycle?.name || 'None — create one in Settings')}</dd></div>
+          <div><dt>Resources</dt><dd>${state.resources.length}</dd></div>
+          <div><dt>Teams</dt><dd>${state.teams.length ? escapeHtml(state.teams.join(', ')) : '—'}</dd></div>
+          <div><dt>Manual tasks</dt><dd>${state.planItems.length}</dd></div>
+        </dl>
+        <div class="btn-row" style="margin-top:16px">
+          <a class="btn btn-refresh-solid" href="#/capacity">View capacity</a>
+          <a class="btn btn-ghost" href="#/settings">Manage settings</a>
+        </div>
       </section>
     `,
   });
 }
 
-function renderSignedIn(auth, me) {
-  const user = me.user || auth.user || {};
-  const displayName = user.name || user.email || 'Signed in';
-  const avatar = initials(user.name, user.email);
+function renderCapacity() {
+  const grid = state.capacity;
+  if (!state.activeCycleId) {
+    return renderShell({
+      activeNav: 'capacity',
+      body: `<section class="panel"><p class="omc-lead">Create a planning cycle in Settings first.</p></section>`,
+    });
+  }
+
+  if (!grid) {
+    return renderShell({
+      activeNav: 'capacity',
+      body: `<section class="panel"><p class="omc-lead">Loading capacity…</p></section>`,
+    });
+  }
+
+  const weekHeaders = grid.weeks
+    .map((w) => `<th class="cap-week">${escapeHtml(formatWeekLabel(w))}</th>`)
+    .join('');
+
+  const rows = grid.rows
+    .map((row) => {
+      const cells = row.weeks
+        .map((cell) => {
+          const cls = cell.overloaded ? 'cap-cell overloaded' : 'cap-cell';
+          return `<td class="${cls}" title="Cap ${cell.capacity}h / Load ${cell.load}h">
+            <span class="cap-load">${cell.load || '—'}</span>
+            <span class="cap-rem">${cell.remaining}</span>
+          </td>`;
+        })
+        .join('');
+      return `<tr>
+        <th class="cap-person">${escapeHtml(row.name)}<span class="cap-team">${escapeHtml(row.team || '')}</span></th>
+        ${cells}
+      </tr>`;
+    })
+    .join('');
 
   return renderShell({
+    activeNav: 'capacity',
     body: `
-      <div class="token-banner valid">
-        <span aria-hidden="true">✓</span>
-        <div><strong>H0 skeleton ready.</strong> Your Neon Auth identity matches AMC A-Lister (<code>sub</code> below).</div>
-      </div>
       <section class="panel">
-        <h1 class="omc-title">Welcome back</h1>
-        <p class="omc-lead">Authenticated via Neon Auth. Capacity planning features land in H1+.</p>
-        <div class="auth-chip" style="margin:14px 0">
-          <span class="auth-avatar">${escapeHtml(avatar)}</span>
-          <span>${escapeHtml(displayName)}</span>
+        <div class="panel-head">
+          <div>
+            <h1 class="omc-title">Capacity</h1>
+            <p class="omc-lead">${escapeHtml(grid.cycle?.name || '')} · ${escapeHtml(grid.mode)} mode · ${grid.rows.length} people</p>
+          </div>
+          <div class="btn-row">
+            <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
+            <select id="cap-mode" class="field-input">
+              <option value="due"${grid.mode === 'due' ? ' selected' : ''}>Due week</option>
+              <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread</option>
+            </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="refresh-capacity">Refresh</button>
+          </div>
         </div>
-        <dl class="omc-identity">
-          <div><dt>User id (<code>sub</code>)</dt><dd class="mono">${escapeHtml(user.id || me.auth?.sub || '')}</dd></div>
-          <div><dt>Email</dt><dd>${escapeHtml(user.email || '—')}</dd></div>
-          <div><dt>Name</dt><dd>${escapeHtml(user.name || '—')}</dd></div>
-          <div><dt>Last seen</dt><dd>${escapeHtml(user.last_seen_at ? new Date(user.last_seen_at).toLocaleString() : '—')}</dd></div>
-        </dl>
+        <div class="cap-legend">
+          <span><span class="legend-dot ok"></span> Under capacity</span>
+          <span><span class="legend-dot warn"></span> Overloaded</span>
+          <span class="cap-legend-note">Cells show load (top) and remaining hours (bottom)</span>
+        </div>
+        <div class="cap-scroll">
+          <table class="cap-table">
+            <thead><tr><th class="cap-person">Person</th>${weekHeaders}</tr></thead>
+            <tbody>${rows || '<tr><td colspan="99">No active resources. Add people in Settings.</td></tr>'}</tbody>
+          </table>
+        </div>
       </section>
     `,
   });
+}
+
+function renderSettings() {
+  const policy = state.policy?.config || {};
+  const resourceRows = state.resources
+    .map(
+      (r) => `
+      <tr data-id="${escapeHtml(r.id)}">
+        <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
+        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Team" /></td>
+        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" placeholder="32" value="${r.profiles?.[0]?.weekly_hours ?? ''}" /></td>
+        <td><label class="check-label"><input type="checkbox" data-field="active" ${r.active ? 'checked' : ''} /> Active</label></td>
+      </tr>`,
+    )
+    .join('');
+
+  const taskRows = state.planItems
+    .map(
+      (t) => `
+      <tr>
+        <td>${escapeHtml(t.title)}</td>
+        <td>${t.work_hours ?? 0}h</td>
+        <td>${t.due_week || '—'}</td>
+        <td>${(t.assignee_ids || []).length} assignee(s)</td>
+      </tr>`,
+    )
+    .join('');
+
+  return renderShell({
+    activeNav: 'settings',
+    body: `
+      <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Planning cycle</h2>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Active cycle</span>
+            <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
+          </label>
+          <label class="field">
+            <span class="field-label">New cycle name</span>
+            <input id="new-cycle-name" class="field-input" placeholder="FY26 SOX" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create cycle</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Policy</h2>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Default weekly hours</span>
+            <input id="policy-weekly" class="field-input" type="number" value="${policy.weekly_capacity_default ?? 32}" />
+          </label>
+          <label class="field">
+            <span class="field-label">Review ratio</span>
+            <input id="policy-review" class="field-input" type="number" step="0.01" value="${policy.review_ratio ?? 0.35}" />
+          </label>
+          <label class="field">
+            <span class="field-label">Overload threshold</span>
+            <input id="policy-threshold" class="field-input" type="number" step="0.05" value="${policy.overload_threshold ?? 1}" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-ghost" id="save-policy">Save policy</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <div class="panel-head">
+          <h2 class="omc-section-title">Resources & teams</h2>
+          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save changes</button>
+        </div>
+        <div class="form-grid" style="margin-bottom:12px">
+          <label class="field">
+            <span class="field-label">Add person</span>
+            <input id="new-resource-name" class="field-input" placeholder="Name" />
+          </label>
+          <label class="field">
+            <span class="field-label">Team</span>
+            <input id="new-resource-team" class="field-input" placeholder="BP" />
+          </label>
+          <label class="field">
+            <span class="field-label">Weekly hours</span>
+            <input id="new-resource-hours" class="field-input" type="number" value="32" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add</button>
+          </div>
+        </div>
+        <table class="data-table" id="resources-table">
+          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
+          <tbody>${resourceRows || '<tr><td colspan="4">No resources yet.</td></tr>'}</tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <h2 class="omc-section-title">Manual tasks</h2>
+        <div class="form-grid" style="margin-bottom:12px">
+          <label class="field field-span-2">
+            <span class="field-label">Title</span>
+            <input id="new-task-title" class="field-input" placeholder="Ad-hoc review" />
+          </label>
+          <label class="field">
+            <span class="field-label">Work hours</span>
+            <input id="new-task-hours" class="field-input" type="number" value="8" />
+          </label>
+          <label class="field">
+            <span class="field-label">Due week</span>
+            <input id="new-task-due" class="field-input" type="date" />
+          </label>
+          <label class="field field-span-2">
+            <span class="field-label">Assignees</span>
+            <select id="new-task-assignees" class="field-input" multiple size="3">
+              ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+            </select>
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="add-task">Add task</button>
+          </div>
+        </div>
+        <table class="data-table">
+          <thead><tr><th>Title</th><th>Hours</th><th>Due week</th><th>Assignees</th></tr></thead>
+          <tbody>${taskRows || '<tr><td colspan="4">No manual tasks yet.</td></tr>'}</tbody>
+        </table>
+      </section>
+    `,
+  });
+}
+
+function formatWeekLabel(isoDate) {
+  const d = new Date(`${isoDate}T00:00:00.000Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+async function loadCoreData() {
+  const token = state.token;
+  const [{ cycles }, { resources, teams }] = await Promise.all([
+    cyclesApi.list(token),
+    resourcesApi.list(token),
+  ]);
+  state.cycles = cycles;
+  state.resources = resources;
+  state.teams = teams;
+
+  if (!state.activeCycleId && cycles.length) {
+    state.activeCycleId = cycles[0].id;
+  }
+  if (state.activeCycleId) {
+    const [{ policy }, { plan_items }] = await Promise.all([
+      policyApi.get(token, state.activeCycleId),
+      planItemsApi.list(token, { cycle: state.activeCycleId }),
+    ]);
+    state.policy = policy;
+    state.planItems = plan_items;
+    if (!state.defaultScenarioId && plan_items[0]?.scenario_id) {
+      state.defaultScenarioId = plan_items[0].scenario_id;
+    }
+  }
+}
+
+async function loadCapacity(mode = 'due') {
+  if (!state.activeCycleId) {
+    state.capacity = null;
+    return;
+  }
+  state.capacity = await capacityApi.get(state.token, {
+    cycle: state.activeCycleId,
+    mode,
+  });
+}
+
+function wireSettingsEvents() {
+  document.getElementById('create-cycle')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-cycle-name')?.value?.trim();
+    if (!name) return;
+    const result = await cyclesApi.create(state.token, { name });
+    state.activeCycleId = result.cycle.id;
+    state.defaultScenarioId = result.default_scenario_id;
+    await refreshView();
+  });
+
+  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
+    state.activeCycleId = e.target.value || null;
+    await refreshView();
+  });
+
+  document.getElementById('save-policy')?.addEventListener('click', async () => {
+    if (!state.activeCycleId) return;
+    const config = {
+      weekly_capacity_default: Number(document.getElementById('policy-weekly').value),
+      review_ratio: Number(document.getElementById('policy-review').value),
+      overload_threshold: Number(document.getElementById('policy-threshold').value),
+      spread_lag_weeks: state.policy?.config?.spread_lag_weeks ?? 0,
+      working_days_per_week: state.policy?.config?.working_days_per_week ?? 5,
+    };
+    const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
+    state.policy = policy;
+    await refreshView();
+  });
+
+  document.getElementById('add-resource')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-resource-name')?.value?.trim();
+    if (!name) return;
+    await resourcesApi.create(state.token, {
+      name,
+      team: document.getElementById('new-resource-team')?.value?.trim() || null,
+      weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
+    });
+    await refreshView();
+  });
+
+  document.getElementById('save-resources')?.addEventListener('click', async () => {
+    const rows = [...document.querySelectorAll('#resources-table tbody tr[data-id]')];
+    const resources = rows.map((row) => ({
+      id: row.dataset.id,
+      name: row.querySelector('[data-field="name"]')?.value,
+      team: row.querySelector('[data-field="team"]')?.value || null,
+      active: row.querySelector('[data-field="active"]')?.checked,
+      weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
+    }));
+    await resourcesApi.patch(state.token, resources);
+    await refreshView();
+  });
+
+  document.getElementById('add-task')?.addEventListener('click', async () => {
+    if (!state.activeCycleId) return;
+    const title = document.getElementById('new-task-title')?.value?.trim();
+    if (!title) return;
+    const assigneeSelect = document.getElementById('new-task-assignees');
+    const assignee_ids = [...assigneeSelect.selectedOptions].map((o) => o.value);
+    let scenarioId = state.defaultScenarioId;
+    if (!scenarioId) {
+      const cap = await capacityApi.get(state.token, { cycle: state.activeCycleId });
+      scenarioId = cap.scenario?.id;
+      state.defaultScenarioId = scenarioId;
+    }
+    await planItemsApi.create(state.token, {
+      cycle_id: state.activeCycleId,
+      scenario_id: scenarioId,
+      title,
+      work_hours: Number(document.getElementById('new-task-hours')?.value || 0),
+      due_week: document.getElementById('new-task-due')?.value || null,
+      assignee_ids,
+    });
+    await refreshView();
+  });
+}
+
+function wireCapacityEvents() {
+  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
+    state.activeCycleId = e.target.value || null;
+    await refreshView();
+  });
+  document.getElementById('cap-mode')?.addEventListener('change', async (e) => {
+    await loadCapacity(e.target.value);
+    render();
+  });
+  document.getElementById('refresh-capacity')?.addEventListener('click', async () => {
+    const mode = document.getElementById('cap-mode')?.value || 'due';
+    await loadCapacity(mode);
+    render();
+  });
+}
+
+async function refreshView() {
+  await loadCoreData();
+  if (currentRoute() === 'capacity') {
+    const mode = document.getElementById('cap-mode')?.value || 'due';
+    await loadCapacity(mode);
+  }
+  render();
+}
+
+function render() {
+  const root = document.getElementById('app-root');
+  const route = currentRoute();
+  let html;
+  if (route === 'capacity') html = renderCapacity();
+  else if (route === 'settings') html = renderSettings();
+  else html = renderHome();
+  root.innerHTML = html;
+  wireAuthLink(state.auth);
+
+  if (route === 'settings') wireSettingsEvents();
+  if (route === 'capacity') wireCapacityEvents();
 }
 
 async function boot() {
   const root = document.getElementById('app-root');
   const auth = await initAuth();
+  state.auth = auth;
 
   if (auth.configured && auth.user && !auth.token) {
     await refreshToken(auth);
@@ -110,9 +524,17 @@ async function boot() {
       return;
     }
 
-    const me = await meApi.get(auth.token);
-    root.innerHTML = renderSignedIn(auth, me);
-    wireAuthLink(auth);
+    state.token = auth.token;
+    state.me = await meApi.get(auth.token);
+    await loadCoreData();
+
+    window.addEventListener('hashchange', async () => {
+      if (currentRoute() === 'capacity') await loadCapacity('due');
+      render();
+    });
+
+    if (currentRoute() === 'capacity') await loadCapacity('due');
+    render();
   } catch (err) {
     console.error(err);
     if (err.status === 401 && auth.configured) {
@@ -122,9 +544,7 @@ async function boot() {
       wireAuthLink(auth);
       return;
     }
-    root.innerHTML = renderShell({
-      body: `<section class="panel"><p class="omc-error">${escapeHtml(err.message || 'Something went wrong.')}</p></section>`,
-    });
+    root.innerHTML = `<section class="panel"><p class="omc-error">${escapeHtml(err.message || 'Something went wrong.')}</p></section>`;
     wireAuthLink(auth);
   }
 }

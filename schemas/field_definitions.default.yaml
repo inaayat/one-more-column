@@ -1,0 +1,38 @@
+profile: default
+fields:
+  - key: control_id
+    label: Control ID
+    type: text
+    source: static
+    validation:
+      required: false
+  - key: work_period
+    label: Work Period
+    type: text
+    source: static
+  - key: reliance
+    label: Reliance
+    type: select
+    source: static
+    validation:
+      options: [High, Medium, Low]
+  - key: sampling
+    label: Sampling
+    type: text
+    source: static
+  - key: evidence_due
+    label: Evidence Due
+    type: date
+    source: dynamic
+  - key: ready_to_start
+    label: Ready to Start
+    type: date
+    source: computed
+  - key: review_due
+    label: Review Due
+    type: date
+    source: computed
+  - key: phase
+    label: Phase
+    type: text
+    source: computed
