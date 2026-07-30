@@ -127,7 +127,7 @@ function renderShell({ body, activeNav = 'planner' }) {
   const avatar = initials(user.name, user.email);
 
   const contentClass =
-    activeNav === 'settings' ? 'content content-centered' : 'content content-wide';
+    activeNav === 'settings' ? 'content content-setup' : 'content content-wide';
 
   return `
     <header class="app-header">
@@ -304,10 +304,11 @@ function renderSettings() {
     activeNav: 'settings',
     body: `
       ${renderSetupProgressBanner(state)}
-      <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}" style="margin-bottom:16px">
+      <div class="setup-steps-row">
+      <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}">
         <h2 class="omc-section-title">1. Name your team area</h2>
         <p class="omc-lead" style="margin-bottom:12px">A workspace is your team’s own planning space — separate from other teams. If you already see a name below (like “Default workspace”), you can keep it and move to step 2.</p>
-        <div class="form-grid">
+        <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Your team area</span>
             <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
@@ -326,10 +327,10 @@ function renderSettings() {
         </div>
       </section>
 
-      <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}" style="margin-bottom:16px">
+      <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}">
         <h2 class="omc-section-title">2. Choose the time period</h2>
         <p class="omc-lead" style="margin-bottom:12px">What stretch of time is this plan for? A quarter, a sprint, or a full year. Pick start and end dates so the calendar lines up.</p>
-        <div class="form-grid">
+        <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Current period</span>
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
@@ -361,13 +362,13 @@ function renderSettings() {
         </div>
       </section>
 
-      <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}" style="margin-bottom:16px">
+      <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="panel-head">
           <h2 class="omc-section-title">3. Add your team</h2>
           <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
         </div>
         <p class="omc-lead" style="margin-bottom:12px">Type each person’s name and how many hours per week they usually have for this work (32 is a common default). Add at least one person — then you can go to Planner.</p>
-        <div class="form-grid" style="margin-bottom:12px">
+        <div class="form-grid setup-form-grid" style="margin-bottom:12px">
           <label class="field">
             <span class="field-label">Name</span>
             <input id="new-resource-name" class="field-input" placeholder="e.g. Alex" />
@@ -384,19 +385,23 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="add-resource">Add</button>
           </div>
         </div>
+        <div class="setup-table-scroll">
         <table class="data-table" id="resources-table">
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
           <tbody>${resourceRows || '<tr><td colspan="4">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
-        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: add your work in Planner →</a></div>` : ''}
+        </div>
+        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: Planner →</a></div>` : ''}
       </section>
+      </div>
 
       <p class="setup-optional-label omc-lead">Optional — you can skip these until later</p>
 
-      <section class="panel" style="margin-bottom:16px">
+      <div class="setup-optional-row">
+      <section class="panel">
         <h2 class="omc-section-title">Planning rules</h2>
         <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings. Most people can leave these as-is.</p>
-        <div class="form-grid">
+        <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Default weekly hours</span>
             <input id="policy-weekly" class="field-input" type="number" value="${policy.weekly_capacity_default ?? 32}" />
@@ -427,10 +432,10 @@ function renderSettings() {
         </div>
       </section>
 
-      <section class="panel" style="margin-bottom:16px">
+      <section class="panel">
         <h2 class="omc-section-title">Time off</h2>
         <p class="omc-lead" style="margin-bottom:12px">Add vacation or PTO so capacity does not count those days.</p>
-        <div class="form-grid">
+        <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Person</span>
             <select id="pto-resource" class="field-input">
@@ -455,12 +460,13 @@ function renderSettings() {
         </div>
       </section>
 
-      <section class="panel" style="margin-bottom:16px">
+      <section class="panel">
         <h2 class="omc-section-title">Changelog</h2>
         <ul class="changelog-list">
           ${(state.changelog || []).slice(0, 15).map((e) => `<li><span class="mono">${escapeHtml(new Date(e.created_at).toLocaleString())}</span> — ${escapeHtml(e.summary)}</li>`).join('') || '<li class="omc-lead">No changes logged yet.</li>'}
         </ul>
       </section>
+      </div>
     `,
   });
 }

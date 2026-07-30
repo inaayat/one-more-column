@@ -31,7 +31,7 @@ export function renderSetupProgressBanner(state) {
   return `
     <section class="panel setup-progress-banner" aria-label="Setup progress">
       <h2 class="setup-progress-title">${title}</h2>
-      <p class="omc-lead">There are three things to set up on this page. Work top to bottom. The section with the green border is the one to fill in now.</p>
+      <p class="omc-lead">There are three things to set up on this page. Work left to right — the column with the green border is the one to fill in now.</p>
       <p class="omc-lead setup-progress-sub">After that, you will add your tasks in <strong>Planner</strong> and check hours in <strong>Capacity</strong>.</p>
       <ol class="setup-progress-steps">${stepItems}</ol>
       ${lead}
