@@ -5,6 +5,7 @@
     { "source": "/one-more-column", "destination": "/index.html" },
     { "source": "/one-more-column/", "destination": "/index.html" },
     { "source": "/one-more-column/:path*", "destination": "/:path*" },
-    { "source": "/api/omc-:route", "destination": "/api/one-more-column?route=:route" }
+    { "source": "/api/omc-:route", "destination": "/api/one-more-column?route=:route" },
+    { "source": "/api/auth-config", "destination": "/api/auth-config" }
   ]
 }

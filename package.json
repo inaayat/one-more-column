@@ -3,10 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vercel dev --listen 3000",
     "test": "node --test engines/*.test.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
     "jose": "^6.2.3"
+  },
+  "devDependencies": {
+    "vercel": "^44.2.7"
   }
 }
