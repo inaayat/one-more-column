@@ -59,8 +59,8 @@ export function renderHomeView({ state, escapeHtml }) {
     : { href: '#/capacity', label: 'View your capacity grid' };
 
   const secondaryCta = progress.setupComplete
-    ? { href: '#/plan', label: 'Open Plan' }
-    : { href: '#/home', label: 'Read the guide' };
+    ? { href: '#/planner', label: 'Open Planner' }
+    : { href: '#/planner', label: 'Start planning' };
 
   return `
     <section class="panel home-hero">
@@ -118,7 +118,7 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">3</span>
             <h3>List the work</h3>
           </div>
-          <p>Open <a href="#/plan">Plan</a> and add tasks for the active cycle and scenario.</p>
+          <p>Open <a href="#/planner">Planner</a> and add tasks for the active cycle. Dependencies are edited inline on each row.</p>
           <ul class="guide-tips">
             <li><strong>Title</strong> — what needs to be done.</li>
             <li><strong>Work hours</strong> — effort to complete it. Review hours can be entered or derived from your policy.</li>
@@ -132,7 +132,7 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">4</span>
             <h3>Model blockers (optional)</h3>
           </div>
-          <p>If something cannot start until something else is done, use <a href="#/dependencies">Dependencies</a>.</p>
+          <p>If something cannot start until something else is done, add a <strong>gate</strong> on that row in Planner (predecessor, gate name, gate due date).</p>
           <ul class="guide-tips">
             <li>Add a gate (for example, <em>Prerequisite complete</em>) on the plan item it blocks.</li>
             <li>Mark gates <strong>met</strong> when they're done — readiness dates update automatically.</li>
@@ -279,20 +279,104 @@ export function escapeAttr(value) {
     .replace(/</g, '&lt;');
 }
 
-export function renderPlanView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
+export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
+  const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
+  const isLivePlan = activeScenario?.status === 'active';
+  const depsByItem = new Map();
+  for (const dep of state.dependencies || []) {
+    if (!depsByItem.has(dep.to_plan_item_id)) depsByItem.set(dep.to_plan_item_id, []);
+    depsByItem.get(dep.to_plan_item_id).push(dep);
+  }
+  const readinessByItem = new Map(
+    (state.readiness || []).map((r) => [r.plan_item_id, r]),
+  );
+
+  const itemOptions = (currentId, selectedId = '') =>
+    state.planItems
+      .filter((p) => p.id !== currentId)
+      .map(
+        (p) =>
+          `<option value="${escapeAttr(p.id)}"${p.id === selectedId ? ' selected' : ''}>${escapeAttr(p.title)}</option>`,
+      )
+      .join('');
+
+  const depTypeOptions = (selected) =>
+    [
+      ['input_ready', 'Input ready'],
+      ['handoff_chain', 'Handoff chain'],
+      ['review_lag', 'Review lag'],
+      ['phase_gate', 'Phase gate'],
+      ['staffing', 'Staffing'],
+      ['external_flag', 'External flag'],
+      ['blackout', 'Blackout'],
+    ]
+      .map(([v, label]) => `<option value="${v}"${selected === v ? ' selected' : ''}>${label}</option>`)
+      .join('');
+
+  const statusOptions = (selected) =>
+    ['open', 'met', 'waived', 'blocked']
+      .map((s) => `<option value="${s}"${selected === s ? ' selected' : ''}>${s}</option>`)
+      .join('');
+
   const rows = state.planItems
-    .map((item) => {
-      const assigneeCount = (item.assignee_ids || []).length;
-      return `<tr data-id="${escapeAttr(item.id)}">
+    .map((item, index) => {
+      const attrs = item.attributes || {};
+      const deps = depsByItem.get(item.id) || [];
+      const primary = deps[0] || null;
+      const extra = deps.slice(1);
+      const ready = readinessByItem.get(item.id);
+      const readyLabel = ready?.blocked
+        ? `<span class="badge badge-warn">Blocked</span>`
+        : ready?.ready_to_start
+          ? `<span class="badge badge-ok">${escapeHtml(String(ready.ready_to_start).slice(0, 10))}</span>`
+          : '—';
+
+      const extraRows = extra
+        .map(
+          (dep) => `<tr class="planner-subrow" data-dep-id="${escapeAttr(dep.id)}" data-parent-id="${escapeAttr(item.id)}">
+            <td></td>
+            <td colspan="2" class="planner-sub-indent">↳ Gate</td>
+            <td colspan="2"></td>
+            <td>
+              <select class="field-input field-sm" data-field="from_plan_item_id">
+                <option value="">—</option>
+                ${itemOptions(item.id, dep.from_plan_item_id || '')}
+              </select>
+            </td>
+            <td><input class="field-input field-sm" data-field="label" value="${escapeAttr(dep.label || '')}" placeholder="Gate name" /></td>
+            <td><input class="field-input field-sm" data-field="dep_due" type="date" value="${dep.meta?.due_date ? String(dep.meta.due_date).slice(0, 10) : ''}" /></td>
+            <td><select class="field-input field-sm" data-field="dep_status">${statusOptions(dep.status)}</select></td>
+            <td><select class="field-input field-sm" data-field="dep_type">${depTypeOptions(dep.dep_type)}</select></td>
+            <td></td>
+            <td><button type="button" class="btn btn-ghost btn-sm btn-delete-dep">×</button></td>
+          </tr>`,
+        )
+        .join('');
+
+      return `<tr class="planner-row" data-id="${escapeAttr(item.id)}" data-dep-id="${escapeAttr(primary?.id || '')}">
+        <td class="planner-num">${index + 1}</td>
         <td><input class="field-input field-sm" data-field="title" value="${escapeAttr(item.title)}" /></td>
-        <td><input class="field-input field-sm" data-field="phase" value="${escapeAttr(item.phase || '')}" /></td>
+        <td><input class="field-input field-sm" data-field="duration_days" type="number" step="0.5" min="0" value="${attrs.duration_days ?? ''}" placeholder="—" /></td>
         <td><input class="field-input field-sm" data-field="work_hours" type="number" step="0.5" value="${item.work_hours ?? 0}" /></td>
-        <td><input class="field-input field-sm" data-field="review_hours" type="number" step="0.5" value="${item.review_hours ?? 0}" /></td>
+        <td><input class="field-input field-sm" data-field="start_date" type="date" value="${attrs.start_date ? String(attrs.start_date).slice(0, 10) : ''}" /></td>
         <td><input class="field-input field-sm" data-field="due_week" type="date" value="${item.due_week ? String(item.due_week).slice(0, 10) : ''}" /></td>
-        <td>${assigneeCount}</td>
-        <td><span class="badge">${escapeHtml(item.source || 'manual')}</span></td>
-        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-item">Delete</button></td>
-      </tr>`;
+        <td>
+          <select class="field-input field-sm" data-field="from_plan_item_id">
+            <option value="">—</option>
+            ${itemOptions(item.id, primary?.from_plan_item_id || '')}
+          </select>
+        </td>
+        <td><input class="field-input field-sm" data-field="label" value="${escapeAttr(primary?.label || '')}" placeholder="What must be ready?" /></td>
+        <td><input class="field-input field-sm" data-field="dep_due" type="date" value="${primary?.meta?.due_date ? String(primary.meta.due_date).slice(0, 10) : ''}" /></td>
+        <td><select class="field-input field-sm" data-field="dep_status">${statusOptions(primary?.status || 'open')}</select></td>
+        <td><select class="field-input field-sm" data-field="dep_type">${depTypeOptions(primary?.dep_type || 'input_ready')}</select></td>
+        <td class="planner-ready">${readyLabel}</td>
+        <td><input class="field-input field-sm" data-field="phase" value="${escapeAttr(item.phase || '')}" /></td>
+        <td class="planner-actions">
+          <button type="button" class="btn btn-ghost btn-sm btn-add-gate" title="Add another gate">+</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-delete-item">×</button>
+        </td>
+      </tr>${extraRows}`;
     })
     .join('');
 
@@ -308,67 +392,100 @@ export function renderPlanView({ state, escapeHtml, cycleOptions, scenarioOption
     <section class="panel">
       <div class="panel-head">
         <div>
-          <h1 class="omc-title">Plan Builder</h1>
-          <p class="omc-lead">Author plan items for the active cycle and scenario.</p>
+          <h1 class="omc-title">Planner</h1>
+          <p class="omc-lead">Spreadsheet-style plan: each row is work to do. Set gates, dates, and duration inline — dependencies stay on the same row.</p>
         </div>
         <div class="btn-row">
           <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
-          <button type="button" class="btn btn-ghost btn-sm" id="create-scenario">New scenario</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export CSV</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Check drift</button>
         </div>
       </div>
 
-      <div class="form-grid" style="margin-bottom:14px">
+      <div class="planner-toolbar">
+        <div class="view-toggle" role="group" aria-label="Plan mode">
+          <button type="button" class="view-toggle-btn${!isLivePlan ? ' active' : ''}" id="mode-draft">Working draft</button>
+          <button type="button" class="view-toggle-btn${isLivePlan ? ' active' : ''}" id="mode-live">Live plan</button>
+        </div>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost btn-sm" id="create-scenario">New draft</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="finalize-scenario"${isLivePlan ? ' disabled' : ''}>Mark as live plan</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export CSV</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Check drift</button>
+          <button type="button" class="btn btn-refresh-solid btn-sm" id="save-planner">Save plan</button>
+        </div>
+      </div>
+      <p class="planner-mode-note omc-lead">
+        ${isLivePlan
+          ? '<strong>Live plan</strong> — this is your current finalized view. You can still edit anytime; changes save when you click Save plan.'
+          : '<strong>Working draft</strong> — experiment here, then mark as live plan when ready.'}
+      </p>
+
+      <div class="form-grid planner-quick-add" style="margin-bottom:14px">
         <label class="field field-span-2">
-          <span class="field-label">Title</span>
-          <input id="new-item-title" class="field-input" placeholder="Control test work" />
+          <span class="field-label">Quick add row</span>
+          <input id="new-item-title" class="field-input" placeholder="Task title" />
         </label>
         <label class="field">
-          <span class="field-label">Phase</span>
-          <input id="new-item-phase" class="field-input" placeholder="Phase 1" />
+          <span class="field-label">Days</span>
+          <input id="new-item-days" class="field-input" type="number" step="0.5" placeholder="5" />
         </label>
         <label class="field">
           <span class="field-label">Work hours</span>
           <input id="new-item-hours" class="field-input" type="number" value="8" />
         </label>
         <label class="field">
-          <span class="field-label">Due week</span>
+          <span class="field-label">Due</span>
           <input id="new-item-due" class="field-input" type="date" />
         </label>
         <div class="field" style="align-self:end">
-          <button type="button" class="btn btn-refresh-solid" id="add-plan-item">Add item</button>
+          <button type="button" class="btn btn-refresh-solid" id="add-plan-item">Add row</button>
         </div>
       </div>
 
-      <div class="form-grid" style="margin-bottom:14px">
-        <label class="field field-span-2">
-          <span class="field-label">CSV import (title, work_hours, due_week, phase)</span>
-          <textarea id="import-csv" class="field-input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Control A,8,2026-01-12,Phase 1"></textarea>
-        </label>
-        <div class="field" style="align-self:end">
-          <button type="button" class="btn btn-ghost" id="preview-import">Preview CSV</button>
+      <details class="planner-import">
+        <summary>Import from CSV</summary>
+        <div class="form-grid" style="margin-top:10px">
+          <label class="field field-span-2">
+            <span class="field-label">CSV (title, work_hours, due_week, phase)</span>
+            <textarea id="import-csv" class="field-input" rows="3" placeholder="title,work_hours,due_week,phase&#10;Task A,8,2026-01-12,Phase 1"></textarea>
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-ghost" id="preview-import">Preview CSV</button>
+          </div>
         </div>
-      </div>
-      ${importPreview}
+        ${importPreview}
+      </details>
 
-      <div class="panel-head">
-        <h2 class="omc-section-title">Plan items (${state.planItems.length})</h2>
-        <button type="button" class="btn btn-ghost btn-sm" id="save-plan-items">Save changes</button>
-      </div>
-      <div class="cap-scroll">
-        <table class="data-table" id="plan-items-table">
+      <div class="cap-scroll planner-scroll">
+        <table class="data-table planner-table" id="planner-table">
           <thead>
             <tr>
-              <th>Title</th><th>Phase</th><th>Work h</th><th>Review h</th><th>Due week</th><th>Assignees</th><th>Source</th><th></th>
+              <th>#</th>
+              <th>Title</th>
+              <th>Days</th>
+              <th>Work h</th>
+              <th>Start</th>
+              <th>Due</th>
+              <th>Predecessor</th>
+              <th>Gate</th>
+              <th>Gate due</th>
+              <th>Status</th>
+              <th>Type</th>
+              <th>Ready</th>
+              <th>Phase</th>
+              <th></th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="8">No plan items yet.</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="14">No rows yet — add your first task above.</td></tr>'}</tbody>
         </table>
       </div>
     </section>
   `;
+}
+
+/** @deprecated use renderPlannerView */
+export function renderPlanView(props) {
+  return renderPlannerView(props);
 }
 
 export function renderDependenciesView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {

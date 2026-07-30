@@ -46,6 +46,8 @@ export const scenariosApi = {
     apiFetch(`/api/omc-scenarios?cycle=${encodeURIComponent(cycleId)}`, { token }),
   create: (token, body) =>
     apiFetch('/api/omc-scenarios', { method: 'POST', body, token }),
+  patch: (token, body) =>
+    apiFetch('/api/omc-scenarios', { method: 'PATCH', body, token }),
 };
 
 export const policyApi = {
@@ -113,11 +115,12 @@ export const importApi = {
 };
 
 export const capacityApi = {
-  get: (token, { cycle, scenario, team, mode } = {}) => {
+  get: (token, { cycle, scenario, team, mode, granularity } = {}) => {
     const params = new URLSearchParams({ cycle });
     if (scenario) params.set('scenario', scenario);
     if (team) params.set('team', team);
     if (mode) params.set('mode', mode);
+    if (granularity) params.set('granularity', granularity);
     return apiFetch(`/api/omc-capacity?${params}`, { token });
   },
 };

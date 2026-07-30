@@ -32,9 +32,9 @@ export function getSetupProgress(state) {
     },
     {
       id: 'plan',
-      label: 'Add plan items',
+      label: 'Build your plan',
       done: hasPlanItems,
-      route: 'plan',
+      route: 'planner',
       anchor: null,
     },
     {
@@ -62,20 +62,26 @@ export function getSetupProgress(state) {
   };
 }
 
-/** First page a signed-in user should see. */
 export function getInitialRoute(state) {
   const progress = getSetupProgress(state);
   if (!progress.setupComplete) return 'settings';
   if (!progress.onboardingComplete && progress.nextStep) return progress.nextStep.route;
-  return 'home';
+  return 'planner';
 }
 
-/** Routes that require workspace + cycle + people before access. */
-const GATED_ROUTES = new Set(['plan', 'dependencies', 'capacity', 'alerts']);
+const GATED_ROUTES = new Set(['planner', 'plan', 'capacity']);
 
 export function resolveRoute(route, state) {
   const progress = getSetupProgress(state);
-  if (!progress.setupComplete && GATED_ROUTES.has(route)) return 'settings';
+  const normalized = normalizeRoute(route);
+  if (!progress.setupComplete && GATED_ROUTES.has(normalized)) return 'settings';
+  return normalized;
+}
+
+/** Map legacy routes to current views. */
+export function normalizeRoute(route) {
+  if (route === 'plan' || route === 'dependencies' || route === 'home') return 'planner';
+  if (route === 'alerts') return 'capacity';
   return route;
 }
 
@@ -86,15 +92,20 @@ export function navItems(state) {
     label: progress.setupComplete ? 'Settings' : 'Setup',
     highlight: progress.nextStep?.route === 'settings',
   };
-  const home = { id: 'home', label: 'Home', highlight: false };
-  const plan = { id: 'plan', label: 'Plan', highlight: progress.nextStep?.route === 'plan' };
-  const dependencies = { id: 'dependencies', label: 'Dependencies', highlight: false };
-  const capacity = { id: 'capacity', label: 'Capacity', highlight: progress.nextStep?.route === 'capacity' };
-  const alerts = { id: 'alerts', label: 'Alerts', highlight: false };
+  const planner = {
+    id: 'planner',
+    label: 'Planner',
+    highlight: progress.nextStep?.route === 'planner',
+  };
+  const capacity = {
+    id: 'capacity',
+    label: 'Capacity',
+    highlight: progress.nextStep?.route === 'capacity',
+  };
 
   if (!progress.setupComplete) {
-    return [setup, home, plan, dependencies, capacity, alerts];
+    return [setup, planner, capacity];
   }
 
-  return [home, plan, capacity, dependencies, alerts, setup];
+  return [planner, capacity, setup];
 }
