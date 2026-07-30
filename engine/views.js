@@ -108,8 +108,7 @@ export function renderHomeView({ state, escapeHtml }) {
           </div>
           <p>Still on <a href="#/settings">Setup</a>, add everyone who will carry work in this workspace.</p>
           <ul class="guide-tips">
-            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours).</li>
-            <li>Optional: add <strong>time off</strong> so capacity reflects PTO and holidays.</li>
+            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours). Add <strong>PTO dates</strong> in the same form if you know them.</li>
             <li>Assign a <strong>team</strong> name if you want to filter the capacity view later.</li>
           </ul>
         </li>
