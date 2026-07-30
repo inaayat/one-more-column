@@ -106,9 +106,21 @@ body {
 .btn-ghost:hover { background: var(--color-surface-muted); opacity: 1; }
 .btn-sm { padding: 7px 12px; font-size: 12px; }
 
-.main { flex: 1; display: flex; flex-direction: column; }
-.content { padding: 18px var(--content-pad-x) 22px; flex: 1; max-width: 720px; }
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+.content {
+  padding: 18px var(--content-pad-x) 22px;
+  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
+}
 .content-wide { max-width: 1200px; }
+.content-centered { max-width: 720px; }
 
 .header-nav { display: flex; gap: 4px; margin: 0 auto; }
 .nav-link {
