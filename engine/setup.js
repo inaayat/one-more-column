@@ -74,7 +74,9 @@ const GATED_ROUTES = new Set(['planner', 'plan', 'capacity']);
 export function resolveRoute(route, state) {
   const progress = getSetupProgress(state);
   const normalized = normalizeRoute(route);
-  if (!progress.planningReady && GATED_ROUTES.has(normalized)) return 'settings';
+  if (!progress.planningReady && (GATED_ROUTES.has(normalized) || normalized === 'preferences')) {
+    return 'settings';
+  }
   return normalized;
 }
 
@@ -89,8 +91,13 @@ export function navItems(state) {
   const progress = getSetupProgress(state);
   const setup = {
     id: 'settings',
-    label: progress.setupComplete ? 'Settings' : 'Setup',
+    label: 'Setup',
     highlight: progress.nextStep?.route === 'settings',
+  };
+  const preferences = {
+    id: 'preferences',
+    label: 'Settings',
+    highlight: false,
   };
   const planner = {
     id: 'planner',
@@ -107,5 +114,5 @@ export function navItems(state) {
     return [setup, planner, capacity];
   }
 
-  return [planner, capacity, setup];
+  return [planner, capacity, setup, preferences];
 }

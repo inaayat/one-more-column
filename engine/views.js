@@ -91,7 +91,7 @@ export function renderHomeView({ state, escapeHtml }) {
     : { href: '#/capacity', label: 'View your capacity grid' };
 
   const secondaryCta = progress.planningReady
-    ? { href: '#/settings', label: 'Team & settings' }
+    ? { href: '#/preferences', label: 'Settings' }
     : { href: '#/settings', label: 'Open Setup' };
 
   return `
@@ -149,7 +149,7 @@ export function renderHomeView({ state, escapeHtml }) {
           <p>Back on <a href="#/settings">Setup</a>, add one row per person — name, role, and standard hours.</p>
           <ul class="guide-tips">
             <li><strong>Who</strong>, <strong>role</strong>, and <strong>std h/wk</strong> — that's all you need to start.</li>
-            <li>Add PTO and other details later under <strong>People details</strong> in optional settings.</li>
+            <li>Add PTO and other details later under <strong>Settings</strong> in the nav.</li>
             <li>You can list work in Planner before your team is complete.</li>
           </ul>
         </li>

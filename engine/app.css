@@ -584,19 +584,51 @@ body {
   margin-top: auto;
 }
 
-.setup-team-table .field-sm {
-  width: 100%;
+.team-people-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.team-person-row,
+.team-add-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(88px, 120px) 36px;
+  gap: 12px;
+  align-items: end;
+}
+
+.team-field {
+  margin: 0;
   min-width: 0;
 }
 
-.setup-team-table th:last-child,
-.setup-team-table td:last-child {
-  width: 36px;
-  text-align: center;
+.team-field .field-input {
+  width: 100%;
 }
 
-#setup-team-add-row td {
-  vertical-align: middle;
+.team-remove-btn,
+.team-add-btn {
+  align-self: end;
+  margin-bottom: 2px;
+}
+
+.team-person-draft {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: #fffbeb;
+  border: 1px dashed rgba(180, 130, 0, 0.35);
+}
+
+.team-draft-value {
+  display: block;
+  padding: 8px 0 2px;
+  font-size: 14px;
+}
+
+.team-add-row {
+  padding-top: 4px;
+  border-top: 1px solid var(--color-border);
 }
 
 .setup-advanced {
