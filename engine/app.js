@@ -317,11 +317,13 @@ function renderSettings() {
   return renderShell({
     activeNav: 'settings',
     body: `
+      <div class="setup-primary">
       ${renderSetupProgressBanner(state)}
       <div class="setup-steps-row">
       <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}">
+        <div class="setup-section-body">
         <h2 class="omc-section-title">1. Name your team area</h2>
-        <p class="omc-lead" style="margin-bottom:12px">A workspace is your team’s own planning space — separate from other teams. If you already see a name below (like “Default workspace”), you can keep it and move to step 2.</p>
+        <p class="omc-lead setup-section-lead">Your team’s planning space — separate from other groups.</p>
         <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Your team area</span>
@@ -339,15 +341,17 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create team area</button>
           </div>
         </div>
+        </div>
         ${state.workspaces.length > 1 && state.activeWorkspaceId ? `
-        <div class="btn-row" style="margin-top:12px">
+        <div class="setup-section-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete this team area</button>
         </div>` : ''}
       </section>
 
       <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}">
+        <div class="setup-section-body">
         <h2 class="omc-section-title">2. Choose the time period</h2>
-        <p class="omc-lead" style="margin-bottom:12px">What stretch of time is this plan for? A quarter, a sprint, or a full year. Pick start and end dates so the calendar lines up.</p>
+        <p class="omc-lead setup-section-lead">Quarter, sprint, or year — pick dates so the calendar lines up.</p>
         <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Current period</span>
@@ -378,19 +382,21 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create this period</button>
           </div>
         </div>
+        </div>
         ${state.activeCycleId ? `
-        <div class="btn-row" style="margin-top:12px">
+        <div class="setup-section-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete this period</button>
         </div>` : ''}
       </section>
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
+        <div class="setup-section-body">
         <div class="panel-head">
           <h2 class="omc-section-title">3. Add your team (for capacity)</h2>
           <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
         </div>
-        <p class="omc-lead" style="margin-bottom:12px">Who will do the work? Add names and weekly hours so Capacity can show overload. You can skip this until after you list work in Planner.</p>
-        <div class="form-grid setup-form-grid" style="margin-bottom:12px">
+        <p class="omc-lead setup-section-lead">Who does the work? Skip until after you list items in Planner.</p>
+        <div class="form-grid setup-form-grid setup-people-form">
           <label class="field">
             <span class="field-label">Name</span>
             <input id="new-resource-name" class="field-input" placeholder="e.g. Alex" />
@@ -447,19 +453,25 @@ function renderSettings() {
           </div>
         </details>
         ` : ''}
-        <div class="setup-table-scroll">
+        <div class="setup-table-scroll setup-people-table">
         <table class="data-table" id="resources-table">
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
           <tbody>${resourceRows || '<tr><td colspan="6">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
         </div>
+        </div>
       </section>
       </div>
 
       ${renderPlanningCta(state)}
+      </div>
 
-      <p class="setup-optional-label omc-lead">Optional — you can skip these until later</p>
-
+      <section class="setup-advanced" aria-labelledby="setup-advanced-title">
+        <header class="setup-advanced-head">
+          <p class="setup-advanced-eyebrow">After the basics</p>
+          <h2 id="setup-advanced-title" class="setup-advanced-title">Optional settings</h2>
+          <p class="omc-lead">Fine-tune planning rules or review history — come back here when you need them.</p>
+        </header>
       <div class="setup-optional-row setup-optional-row-2">
       <section class="panel">
         <h2 class="omc-section-title">Planning rules</h2>
@@ -502,6 +514,7 @@ function renderSettings() {
         </ul>
       </section>
       </div>
+      </section>
     `,
   });
 }
