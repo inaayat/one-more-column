@@ -31,7 +31,7 @@ export function renderSetupProgressBanner(state) {
         ? 'You are almost done'
         : 'Almost there';
   const intro = !progress.planningReady
-    ? '<p class="omc-lead">Fill in team area and time period below, add anyone on the team, then click <strong>Create the plan</strong> once at the bottom.</p>'
+    ? '<p class="omc-lead">Each step is either <strong>Use existing</strong> or <strong>Create new</strong> — not both. Fill in what shows, then click <strong>Create the plan</strong>.</p>'
     : progress.nextStep?.id === 'plan'
       ? '<p class="omc-lead">Setup basics are done. Open <strong>Planner</strong> and add rows for what you are actually trying to get done — deliverables, reviews, meetings, anything with hours and due dates.</p>'
       : '<p class="omc-lead">Add your work in <strong>Planner</strong>, add people in step 3 if you have not yet, then check <strong>Capacity</strong>.</p>';

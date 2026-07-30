@@ -58,6 +58,10 @@ const state = {
   capacityGranularity: 'week',
   drift: null,
   setupDraftPeople: [],
+  setupUi: {
+    workspaceMode: null,
+    cycleMode: null,
+  },
 };
 
 function escapeHtml(value) {
@@ -290,6 +294,40 @@ function renderCapacity() {
   });
 }
 
+function resolveSetupMode(kind, hasExisting, forceNew = false) {
+  if (forceNew) return 'new';
+  const stored = state.setupUi?.[`${kind}Mode`];
+  if (stored === 'existing' && !hasExisting) return 'new';
+  if (stored) return stored;
+  return hasExisting ? 'existing' : 'new';
+}
+
+function getActiveSetupMode(kind) {
+  const btn = document.querySelector(`[data-setup-mode="${kind}"] .view-toggle-btn.active`);
+  if (btn?.dataset.mode) return btn.dataset.mode;
+  if (kind === 'workspace') return resolveSetupMode('workspace', state.workspaces.length > 0);
+  const wsMode = getActiveSetupMode('workspace');
+  return resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
+}
+
+function renderSetupModeToggle(kind, activeMode, hasExisting) {
+  const labels =
+    kind === 'workspace'
+      ? { existing: 'Use existing', new: 'Create new' }
+      : { existing: 'Use existing', new: 'Create new' };
+  const hint =
+    kind === 'workspace'
+      ? 'Pick one — you either select a team area that already exists, or create a brand-new one.'
+      : 'Pick one — use a period you already set up, or define a new one.';
+  return `
+    <p class="setup-mode-hint omc-lead">${hint}</p>
+    <div class="setup-mode-toggle view-toggle" role="group" data-setup-mode="${kind}">
+      <button type="button" class="view-toggle-btn${activeMode === 'existing' ? ' active' : ''}" data-mode="existing"${!hasExisting ? ' disabled' : ''}>${labels.existing}</button>
+      <button type="button" class="view-toggle-btn${activeMode === 'new' ? ' active' : ''}" data-mode="new">${labels.new}</button>
+    </div>
+  `;
+}
+
 function collectPersonFromForm() {
   return {
     name: document.getElementById('new-resource-name')?.value?.trim() || '',
@@ -332,6 +370,8 @@ function renderSetupSubmitBar(progress) {
 }
 
 async function submitSetupPlan() {
+  const wsMode = getActiveSetupMode('workspace');
+  const cycleMode = wsMode === 'new' ? 'new' : getActiveSetupMode('cycle');
   const newWsName = document.getElementById('new-workspace-name')?.value?.trim();
   const wsSelect = document.getElementById('workspace-select-settings')?.value;
   const newCycleName = document.getElementById('new-cycle-name')?.value?.trim();
@@ -344,8 +384,8 @@ async function submitSetupPlan() {
   const progress = getSetupProgress(state);
   if (
     progress.planningReady
-    && !newWsName
-    && !newCycleName
+    && wsMode === 'existing'
+    && cycleMode === 'existing'
     && !people.length
   ) {
     await refreshView();
@@ -353,21 +393,31 @@ async function submitSetupPlan() {
     return;
   }
 
-  let workspaceId = newWsName ? null : wsSelect || state.activeWorkspaceId;
-  if (newWsName) {
+  let workspaceId = null;
+  if (wsMode === 'new') {
+    if (!newWsName) {
+      alert('Enter a name for the new team area.');
+      return;
+    }
     const profile = document.getElementById('new-workspace-profile')?.value?.trim() || 'default';
     const { workspace } = await workspacesApi.create(state.token, { name: newWsName, profile });
     workspaceId = workspace.id;
-  }
-  if (!workspaceId) {
-    alert('Enter a team area name or pick an existing one.');
-    return;
+  } else {
+    workspaceId = wsSelect || state.activeWorkspaceId;
+    if (!workspaceId) {
+      alert('Pick a team area from the list.');
+      return;
+    }
   }
   state.activeWorkspaceId = workspaceId;
   persistActiveWorkspace();
 
-  let cycleId = newCycleName ? null : cycleSelect || state.activeCycleId;
-  if (newCycleName) {
+  let cycleId = null;
+  if (cycleMode === 'new') {
+    if (!newCycleName) {
+      alert('Enter a name for the new planning period.');
+      return;
+    }
     const result = await cyclesApi.create(state.token, workspaceId, {
       name: newCycleName,
       cycle_type: document.getElementById('new-cycle-type')?.value || 'annual',
@@ -376,10 +426,12 @@ async function submitSetupPlan() {
     });
     cycleId = result.cycle.id;
     state.activeScenarioId = result.default_scenario_id;
-  }
-  if (!cycleId) {
-    alert('Name this planning period or pick an existing one.');
-    return;
+  } else {
+    cycleId = cycleSelect || state.activeCycleId;
+    if (!cycleId) {
+      alert('Pick a planning period from the list.');
+      return;
+    }
   }
   state.activeCycleId = cycleId;
 
@@ -456,6 +508,10 @@ function renderSettings() {
     )
     .join('');
 
+  const wsMode = resolveSetupMode('workspace', state.workspaces.length > 0);
+  const cycleMode = resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
+  const hasTeam = state.resources.length > 0 || draftRows;
+
   return renderShell({
     activeNav: 'settings',
     body: `
@@ -465,24 +521,28 @@ function renderSettings() {
       <div class="setup-steps-row">
       <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">1. Name your team area</h2>
-        <p class="omc-lead setup-section-lead">Your team’s planning space — separate from other groups.</p>
-        <div class="form-grid setup-form-grid">
+        <h2 class="omc-section-title">1. Team area</h2>
+        ${renderSetupModeToggle('workspace', wsMode, state.workspaces.length > 0)}
+        <div class="setup-mode-panel${wsMode === 'existing' ? '' : ' hidden'}">
           <label class="field">
-            <span class="field-label">Your team area</span>
+            <span class="field-label">Which team area?</span>
             <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
           </label>
+        </div>
+        <div class="setup-mode-panel${wsMode === 'new' ? '' : ' hidden'}">
+          <div class="form-grid setup-form-grid">
           <label class="field">
-            <span class="field-label">Or create a new one</span>
+            <span class="field-label">New team area name</span>
             <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering team" />
           </label>
           <label class="field">
             <span class="field-label">Type (optional)</span>
-            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" title="Leave as default unless you were told otherwise" />
+            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" />
           </label>
+          </div>
         </div>
         </div>
-        ${state.workspaces.length > 1 && state.activeWorkspaceId ? `
+        ${wsMode === 'existing' && state.workspaces.length > 1 && state.activeWorkspaceId ? `
         <div class="setup-section-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete this team area</button>
         </div>` : ''}
@@ -490,19 +550,24 @@ function renderSettings() {
 
       <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">2. Choose the time period</h2>
-        <p class="omc-lead setup-section-lead">Quarter, sprint, or year — pick dates so the calendar lines up.</p>
-        <div class="form-grid setup-form-grid">
+        <h2 class="omc-section-title">2. Time period</h2>
+        ${wsMode === 'new'
+          ? '<p class="omc-lead setup-section-lead">New team area — name your first planning period below.</p>'
+          : renderSetupModeToggle('cycle', cycleMode, state.cycles.length > 0)}
+        <div class="setup-mode-panel${cycleMode === 'existing' && wsMode !== 'new' ? '' : ' hidden'}">
           <label class="field">
-            <span class="field-label">Current period</span>
+            <span class="field-label">Which period?</span>
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           </label>
+        </div>
+        <div class="setup-mode-panel${cycleMode === 'new' || wsMode === 'new' ? '' : ' hidden'}">
+        <div class="form-grid setup-form-grid">
           <label class="field">
-            <span class="field-label">Name this period</span>
+            <span class="field-label">Period name</span>
             <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" />
           </label>
           <label class="field">
-            <span class="field-label">Kind of period</span>
+            <span class="field-label">Kind</span>
             <select id="new-cycle-type" class="field-input">
               <option value="annual">Full year</option>
               <option value="quarter">Quarter</option>
@@ -520,7 +585,8 @@ function renderSettings() {
           </label>
         </div>
         </div>
-        ${state.activeCycleId ? `
+        </div>
+        ${cycleMode === 'existing' && state.activeCycleId ? `
         <div class="setup-section-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete this period</button>
         </div>` : ''}
@@ -528,11 +594,21 @@ function renderSettings() {
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="setup-section-body">
-        <div class="panel-head">
-          <h2 class="omc-section-title">3. Add your team (for capacity)</h2>
-          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
+        <h2 class="omc-section-title">3. Team <span class="setup-optional-tag">optional</span></h2>
+        <p class="omc-lead setup-section-lead">Only needed for capacity checks. You can skip and add people later.</p>
+        ${hasTeam ? `<h3 class="setup-subheading">Already on the team</h3>` : ''}
+        ${hasTeam ? `
+        <div class="setup-table-scroll setup-people-table">
+        <table class="data-table" id="resources-table">
+          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
+          <tbody>${draftRows}${resourceRows}</tbody>
+        </table>
         </div>
-        <p class="omc-lead setup-section-lead">Who does the work? Skip until after you list items in Planner.</p>
+        <div class="btn-row" style="margin-bottom:12px">
+          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save edits to names above</button>
+        </div>
+        ` : ''}
+        <h3 class="setup-subheading">${hasTeam ? 'Add someone new' : 'Add people'}</h3>
         <div class="form-grid setup-form-grid setup-people-form">
           <label class="field">
             <span class="field-label">Name</span>
@@ -590,12 +666,14 @@ function renderSettings() {
           </div>
         </details>
         ` : ''}
+        ${!hasTeam ? `
         <div class="setup-table-scroll setup-people-table">
         <table class="data-table" id="resources-table">
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
-          <tbody>${draftRows}${resourceRows || (draftRows ? '' : '<tr><td colspan="6">Add people above — they will be created when you click Create the plan.</td></tr>')}</tbody>
+          <tbody>${draftRows || '<tr><td colspan="6" class="omc-lead">Nobody added yet — use the form above.</td></tr>'}</tbody>
         </table>
         </div>
+        ` : ''}
         </div>
       </section>
       </div>
