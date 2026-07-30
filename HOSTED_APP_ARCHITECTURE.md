@@ -185,7 +185,7 @@ Align with the domain model in the main spec. Concrete tables:
 ### 4.1 Core
 
 ```
-users                -- from SSO (sub, email, display_name)
+users                -- from Neon Auth (id = auth.sub, email, display_name)
 roles / user_roles
 
 planning_cycles      -- FY26 BP SOX, etc.
