@@ -28,6 +28,8 @@ export const meApi = {
 export const workspacesApi = {
   list: (token) => apiFetch('/api/omc-workspaces', { token }),
   create: (token, body) => apiFetch('/api/omc-workspaces', { method: 'POST', body, token }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-workspaces?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
 };
 
 export const cyclesApi = {
@@ -39,6 +41,11 @@ export const cyclesApi = {
       body: { ...body, workspace_id: workspaceId },
       token,
     }),
+  delete: (token, workspaceId, id) =>
+    apiFetch(`/api/omc-cycles?${workspaceQs(workspaceId)}&id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      token,
+    }),
 };
 
 export const scenariosApi = {
@@ -48,6 +55,8 @@ export const scenariosApi = {
     apiFetch('/api/omc-scenarios', { method: 'POST', body, token }),
   patch: (token, body) =>
     apiFetch('/api/omc-scenarios', { method: 'PATCH', body, token }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-scenarios?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
 };
 
 export const policyApi = {
@@ -77,6 +86,11 @@ export const resourcesApi = {
     apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}`, {
       method: 'PATCH',
       body: { resources },
+      token,
+    }),
+  delete: (token, workspaceId, id) =>
+    apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}&id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
       token,
     }),
 };
