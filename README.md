@@ -10,11 +10,12 @@ Flexible Capacity Planner / SOX planning platform — specs and build plan for m
 
 | Doc | Purpose |
 |---|---|
+| [ideation/](./ideation/) | Phase 0 specs, architecture, Excel example, design template |
 | [BUILD_PLAN.md](./BUILD_PLAN.md) | Complex phased delivery (Track A SOX → Track H hosted/auth → Track B flexible) |
-| [CAPACITY_PLANNER_SPECIFICATION.md](./CAPACITY_PLANNER_SPECIFICATION.md) | Part A SOX Capacity Planner + Part B flexible platform |
-| [HOSTED_APP_ARCHITECTURE.md](./HOSTED_APP_ARCHITECTURE.md) | Neon Auth + path proxy + Postgres cutover |
-| [config.excel.example.json](./config.excel.example.json) | Non-Jira SharePoint embed/edit example |
-| [templates/blank-styling-template.html](./templates/blank-styling-template.html) | Mulish design tokens + UI chrome |
+| [ideation/CAPACITY_PLANNER_SPECIFICATION.md](./ideation/CAPACITY_PLANNER_SPECIFICATION.md) | Part A SOX Capacity Planner + Part B flexible platform |
+| [ideation/HOSTED_APP_ARCHITECTURE.md](./ideation/HOSTED_APP_ARCHITECTURE.md) | Neon Auth + path proxy + Postgres cutover |
+| [ideation/config.excel.example.json](./ideation/config.excel.example.json) | Non-Jira SharePoint embed/edit example |
+| [ideation/templates/blank-styling-template.html](./ideation/templates/blank-styling-template.html) | Mulish design tokens + UI chrome |
 
 ## Sequencing (short)
 
