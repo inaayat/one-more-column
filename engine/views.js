@@ -119,9 +119,10 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">3</span>
             <h3>List the work</h3>
           </div>
-          <p>Open <a href="#/planner">Planner</a> and add tasks for the active cycle. Dependencies are edited inline on each row.</p>
+          <p>Open <a href="#/planner">Planner</a> and add rows for the active cycle — deliverables, reviews, meetings, anything else. Use <strong>Type</strong> to label rows; gates and dependencies are edited inline.</p>
           <ul class="guide-tips">
             <li><strong>Title</strong> — what needs to be done.</li>
+            <li><strong>Type</strong> — general, deliverable, review, meeting, admin, or other.</li>
             <li><strong>Work hours</strong> — effort to complete it. Review hours can be entered or derived from your policy.</li>
             <li><strong>Due week</strong> — when the work should land. Hours count toward that week on the capacity grid.</li>
             <li>Already have a spreadsheet? Paste CSV on the Plan page or use <strong>Export CSV</strong> to download what you have.</li>
@@ -150,7 +151,7 @@ export function renderHomeView({ state, escapeHtml }) {
             <li><span class="legend-dot ok"></span> <strong>Green</strong> — room left.</li>
             <li><span class="legend-dot warn"></span> <strong>Yellow</strong> — getting tight.</li>
             <li><span class="legend-dot bad"></span> <strong>Red</strong> — overloaded.</li>
-            <li>Use <strong>team tabs</strong> to focus on one group. Document cycle assumptions at the top of the page.</li>
+            <li>Use <strong>team tabs</strong> to focus on one group. Open gates from Planner show at the top when something is still waiting.</li>
           </ul>
         </li>
 
@@ -236,14 +237,27 @@ export function renderAlertsView({ state, escapeHtml, cycleOptions, scenarioOpti
   `;
 }
 
-export function assumptionsBlock(assumptions, escapeHtml) {
-  if (!assumptions?.length) {
-    return '<p class="omc-lead assumptions-panel">No assumptions documented for this cycle.</p>';
-  }
-  const items = assumptions
-    .map((a) => `<li>${escapeHtml(a.text)}</li>`)
+export function openGatesBlock(state, escapeHtml) {
+  const open = (state.dependencies || []).filter(
+    (d) => d.status === 'open' || d.status === 'blocked',
+  );
+  if (!open.length) return '';
+
+  const items = open
+    .map((d) => {
+      const task = escapeHtml(d.to_title || 'Task');
+      const label = escapeHtml(d.label || 'Gate');
+      const due = d.meta?.due_date ? String(d.meta.due_date).slice(0, 10) : 'no date set';
+      return `<li><strong>${task}</strong> — ${label} (by ${due})</li>`;
+    })
     .join('');
-  return `<div class="assumptions-panel"><strong>Assumptions</strong><ul>${items}</ul></div>`;
+
+  return `<div class="assumptions-panel"><strong>Still waiting on</strong><ul>${items}</ul><p class="omc-lead" style="margin-top:8px">These come from gates in Planner — not a separate list.</p></div>`;
+}
+
+/** @deprecated assumptions live in Planner gates now */
+export function assumptionsBlock(assumptions, escapeHtml) {
+  return '';
 }
 
 export function teamTabs(teams, activeTeam, escapeHtml) {
@@ -303,13 +317,25 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
 
   const depTypeOptions = (selected) =>
     [
-      ['input_ready', 'Input ready'],
-      ['handoff_chain', 'Handoff chain'],
-      ['review_lag', 'Review lag'],
-      ['phase_gate', 'Phase gate'],
-      ['staffing', 'Staffing'],
-      ['external_flag', 'External flag'],
-      ['blackout', 'Blackout'],
+      ['input_ready', 'Something must be ready'],
+      ['handoff_chain', 'Handoff from someone'],
+      ['external_flag', 'Team agreement'],
+      ['phase_gate', 'Phase milestone'],
+      ['staffing', 'Need a person'],
+      ['review_lag', 'Review after work'],
+      ['blackout', 'Blackout period'],
+    ]
+      .map(([v, label]) => `<option value="${v}"${selected === v ? ' selected' : ''}>${label}</option>`)
+      .join('');
+
+  const taskTypeOptions = (selected = 'general') =>
+    [
+      ['general', 'General'],
+      ['deliverable', 'Deliverable'],
+      ['review', 'Review'],
+      ['meeting', 'Meeting'],
+      ['admin', 'Admin'],
+      ['other', 'Other'],
     ]
       .map(([v, label]) => `<option value="${v}"${selected === v ? ' selected' : ''}>${label}</option>`)
       .join('');
@@ -357,6 +383,7 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
       return `<tr class="planner-row" data-id="${escapeAttr(item.id)}" data-dep-id="${escapeAttr(primary?.id || '')}">
         <td class="planner-num">${index + 1}</td>
         <td><input class="field-input field-sm" data-field="title" value="${escapeAttr(item.title)}" /></td>
+        <td><select class="field-input field-sm" data-field="task_type">${taskTypeOptions(attrs.task_type || 'general')}</select></td>
         <td><input class="field-input field-sm" data-field="duration_days" type="number" step="0.5" min="0" value="${attrs.duration_days ?? ''}" placeholder="—" /></td>
         <td><input class="field-input field-sm" data-field="work_hours" type="number" step="0.5" value="${item.work_hours ?? 0}" /></td>
         <td><input class="field-input field-sm" data-field="start_date" type="date" value="${attrs.start_date ? String(attrs.start_date).slice(0, 10) : ''}" /></td>
@@ -394,7 +421,7 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
       <div class="panel-head">
         <div>
           <h1 class="omc-title">Planner</h1>
-          <p class="omc-lead">Each row is a piece of work. Add how long it takes, when it is due, and what has to happen before you can start.</p>
+          <p class="omc-lead">One list for all work — deliverables, reviews, meetings, anything else. Use <strong>Type</strong> to label rows. Use <strong>Gate</strong> for what must happen first (including team agreements).</p>
         </div>
         <div class="btn-row">
           <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
@@ -425,6 +452,17 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
         <label class="field field-span-2">
           <span class="field-label">Quick add row</span>
           <input id="new-item-title" class="field-input" placeholder="Task title" />
+        </label>
+        <label class="field">
+          <span class="field-label">Type</span>
+          <select id="new-item-type" class="field-input">
+            <option value="general">General</option>
+            <option value="deliverable">Deliverable</option>
+            <option value="review">Review</option>
+            <option value="meeting">Meeting</option>
+            <option value="admin">Admin</option>
+            <option value="other">Other</option>
+          </select>
         </label>
         <label class="field">
           <span class="field-label">Days</span>
@@ -463,6 +501,7 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
             <tr>
               <th>#</th>
               <th>Title</th>
+              <th>Type</th>
               <th>Days</th>
               <th>Work h</th>
               <th>Start</th>
@@ -471,13 +510,13 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
               <th>Gate</th>
               <th>Gate due</th>
               <th>Status</th>
-              <th>Type</th>
+              <th>Gate type</th>
               <th>Ready</th>
               <th>Phase</th>
               <th></th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="14">No rows yet — add your first task above.</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="15">No rows yet — add your first task above.</td></tr>'}</tbody>
         </table>
       </div>
     </section>

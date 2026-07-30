@@ -10,7 +10,6 @@ import {
   dependenciesApi,
   importApi,
   capacityApi,
-  assumptionsApi,
   changelogApi,
   alertsApi,
   exportApi,
@@ -24,7 +23,7 @@ import {
   renderPlannerView,
   renderDependenciesView,
   renderAlertsView,
-  assumptionsBlock,
+  openGatesBlock,
   teamTabs,
   capacityCellClass,
 } from './views.js';
@@ -52,7 +51,6 @@ const state = {
   dependencies: [],
   readiness: [],
   importPreview: null,
-  assumptions: [],
   changelog: [],
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
@@ -268,7 +266,7 @@ function renderCapacity() {
             <button type="button" class="btn btn-ghost btn-sm" id="refresh-capacity">Refresh</button>
           </div>
         </div>
-        ${assumptionsBlock(grid.assumptions || state.assumptions, escapeHtml)}
+        ${openGatesBlock(state, escapeHtml)}
         ${teamTabs(grid.teams || state.teams, state.activeTeamFilter, escapeHtml)}
         <div class="cap-legend">
           <span><span class="legend-dot ok"></span> Green — comfortable</span>
@@ -298,18 +296,6 @@ function renderSettings() {
         <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Team" /></td>
         <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" placeholder="32" value="${r.profiles?.[0]?.weekly_hours ?? ''}" /></td>
         <td><label class="check-label"><input type="checkbox" data-field="active" ${r.active ? 'checked' : ''} /> Active</label></td>
-      </tr>`,
-    )
-    .join('');
-
-  const taskRows = state.planItems
-    .map(
-      (t) => `
-      <tr>
-        <td>${escapeHtml(t.title)}</td>
-        <td>${t.work_hours ?? 0}h</td>
-        <td>${t.due_week || '—'}</td>
-        <td>${(t.assignee_ids || []).length} assignee(s)</td>
       </tr>`,
     )
     .join('');
@@ -442,23 +428,6 @@ function renderSettings() {
       </section>
 
       <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Notes for this period</h2>
-        <p class="omc-lead" style="margin-bottom:10px">Anything the team should remember while planning (e.g. “Everyone at 80% in July”).</p>
-        <div class="form-grid" style="margin-bottom:10px">
-          <label class="field field-span-2">
-            <span class="field-label">New assumption</span>
-            <input id="new-assumption" class="field-input" placeholder="Review ratio held at 35% for Q1" />
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-assumption">Add</button>
-          </div>
-        </div>
-        <ul class="assumptions-list">
-          ${(state.assumptions || []).map((a) => `<li>${escapeHtml(a.text)} <button type="button" class="btn btn-ghost btn-sm btn-del-assumption" data-id="${escapeHtml(a.id)}">Remove</button></li>`).join('') || '<li class="omc-lead">None yet.</li>'}
-        </ul>
-      </section>
-
-      <section class="panel" style="margin-bottom:16px">
         <h2 class="omc-section-title">Time off</h2>
         <p class="omc-lead" style="margin-bottom:12px">Add vacation or PTO so capacity does not count those days.</p>
         <div class="form-grid">
@@ -491,37 +460,6 @@ function renderSettings() {
         <ul class="changelog-list">
           ${(state.changelog || []).slice(0, 15).map((e) => `<li><span class="mono">${escapeHtml(new Date(e.created_at).toLocaleString())}</span> — ${escapeHtml(e.summary)}</li>`).join('') || '<li class="omc-lead">No changes logged yet.</li>'}
         </ul>
-      </section>
-
-      <section class="panel">
-        <h2 class="omc-section-title">Manual tasks</h2>
-        <div class="form-grid" style="margin-bottom:12px">
-          <label class="field field-span-2">
-            <span class="field-label">Title</span>
-            <input id="new-task-title" class="field-input" placeholder="Ad-hoc review" />
-          </label>
-          <label class="field">
-            <span class="field-label">Work hours</span>
-            <input id="new-task-hours" class="field-input" type="number" value="8" />
-          </label>
-          <label class="field">
-            <span class="field-label">Due week</span>
-            <input id="new-task-due" class="field-input" type="date" />
-          </label>
-          <label class="field field-span-2">
-            <span class="field-label">Assignees</span>
-            <select id="new-task-assignees" class="field-input" multiple size="3">
-              ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
-            </select>
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-task">Add task</button>
-          </div>
-        </div>
-        <table class="data-table">
-          <thead><tr><th>Title</th><th>Hours</th><th>Due week</th><th>Assignees</th></tr></thead>
-          <tbody>${taskRows || '<tr><td colspan="4">No manual tasks yet.</td></tr>'}</tbody>
-        </table>
       </section>
     `,
   });
@@ -676,7 +614,6 @@ async function loadCapacity(mode = 'due', granularity = state.capacityGranularit
     mode,
     granularity,
   });
-  state.assumptions = state.capacity?.assumptions || state.assumptions;
   state.capacityGranularity = granularity;
 }
 
@@ -810,20 +747,6 @@ function wireSettingsEvents() {
     await refreshView();
   });
 
-  document.getElementById('add-assumption')?.addEventListener('click', async () => {
-    const text = document.getElementById('new-assumption')?.value?.trim();
-    if (!text || !state.activeCycleId) return;
-    await assumptionsApi.create(state.token, { cycle_id: state.activeCycleId, text });
-    await refreshView();
-  });
-
-  document.querySelectorAll('.btn-del-assumption').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      await assumptionsApi.delete(state.token, btn.dataset.id);
-      await refreshView();
-    });
-  });
-
   document.getElementById('add-pto')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId) return;
     await timeOffApi.create(state.token, state.activeWorkspaceId, {
@@ -860,23 +783,6 @@ function wireSettingsEvents() {
     await refreshView();
   });
 
-  document.getElementById('add-task')?.addEventListener('click', async () => {
-    if (!state.activeCycleId) return;
-    const title = document.getElementById('new-task-title')?.value?.trim();
-    if (!title) return;
-    const assigneeSelect = document.getElementById('new-task-assignees');
-    const assignee_ids = [...assigneeSelect.selectedOptions].map((o) => o.value);
-    if (!state.activeScenarioId) await loadScenarioData();
-    await planItemsApi.create(state.token, {
-      cycle_id: state.activeCycleId,
-      scenario_id: state.activeScenarioId,
-      title,
-      work_hours: Number(document.getElementById('new-task-hours')?.value || 0),
-      due_week: document.getElementById('new-task-due')?.value || null,
-      assignee_ids,
-    });
-    await refreshView();
-  });
 }
 
 function wirePlannerEvents() {
@@ -912,13 +818,16 @@ function wirePlannerEvents() {
     const title = document.getElementById('new-item-title')?.value?.trim();
     if (!title) return;
     const days = document.getElementById('new-item-days')?.value;
+    const taskType = document.getElementById('new-item-type')?.value || 'general';
+    const attributes = { task_type: taskType };
+    if (days) attributes.duration_days = Number(days);
     await planItemsApi.create(state.token, {
       cycle_id: state.activeCycleId,
       scenario_id: state.activeScenarioId,
       title,
       work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
       due_week: document.getElementById('new-item-due')?.value || null,
-      attributes: days ? { duration_days: Number(days) } : {},
+      attributes,
     });
     await loadScenarioData();
     render();
@@ -1034,8 +943,10 @@ async function savePlannerGrid() {
     const attrs = {};
     const days = row.querySelector('[data-field="duration_days"]')?.value;
     const start = row.querySelector('[data-field="start_date"]')?.value;
+    const taskType = row.querySelector('[data-field="task_type"]')?.value;
     if (days) attrs.duration_days = Number(days);
     if (start) attrs.start_date = start;
+    if (taskType) attrs.task_type = taskType;
 
     plan_items.push({
       id,
@@ -1209,10 +1120,6 @@ async function refreshView() {
     await loadCapacity(mode, state.capacityGranularity);
   }
   if (route === 'settings') await loadChangelog();
-  if (state.activeCycleId) {
-    const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
-    state.assumptions = assumptions;
-  }
   render();
 }
 
@@ -1286,10 +1193,6 @@ async function boot() {
 
     const route = currentRoute();
     if (route === 'capacity') await loadCapacity('due', state.capacityGranularity);
-    if (state.activeCycleId) {
-      const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
-      state.assumptions = assumptions;
-    }
     render();
   } catch (err) {
     console.error(err);
