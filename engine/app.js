@@ -10,11 +10,20 @@ import {
   dependenciesApi,
   importApi,
   capacityApi,
+  assumptionsApi,
+  changelogApi,
+  alertsApi,
+  exportApi,
+  timeOffApi,
 } from './api.js';
 import {
   scenarioOptions,
   renderPlanView,
   renderDependenciesView,
+  renderAlertsView,
+  assumptionsBlock,
+  teamTabs,
+  capacityCellClass,
 } from './views.js';
 
 const APP_PATH = '/one-more-column/';
@@ -39,6 +48,12 @@ const state = {
   dependencies: [],
   readiness: [],
   importPreview: null,
+  assumptions: [],
+  changelog: [],
+  alerts: [],
+  alertCounts: { high: 0, medium: 0, low: 0 },
+  activeTeamFilter: '',
+  drift: null,
 };
 
 function escapeHtml(value) {
@@ -93,6 +108,7 @@ function renderShell({ body, activeNav = 'home' }) {
     { id: 'plan', label: 'Plan' },
     { id: 'dependencies', label: 'Dependencies' },
     { id: 'capacity', label: 'Capacity' },
+    { id: 'alerts', label: 'Alerts' },
     { id: 'settings', label: 'Settings' },
   ];
   const nav = navItems
@@ -177,7 +193,7 @@ function renderHome() {
     body: `
       <div class="token-banner valid">
         <span aria-hidden="true">✓</span>
-        <div><strong>H2 + C2 ready.</strong> Plan Builder, scenarios, CSV import, and dependency/readiness tracking are live.</div>
+        <div><strong>C1 + H3 + C4 ready.</strong> Capacity bands, assumptions, PTO overlay, alerts, and CSV export are live.</div>
       </div>
       <section class="panel">
         <h1 class="omc-title">Welcome back</h1>
@@ -222,8 +238,8 @@ function renderCapacity() {
     .map((row) => {
       const cells = row.weeks
         .map((cell) => {
-          const cls = cell.overloaded ? 'cap-cell overloaded' : 'cap-cell';
-          return `<td class="${cls}" title="Cap ${cell.capacity}h / Load ${cell.load}h">
+          const cls = capacityCellClass(cell);
+          return `<td class="${cls}" title="Cap ${cell.capacity}h / Load ${cell.load}h / Rem ${cell.remaining}h">
             <span class="cap-load">${cell.load || '—'}</span>
             <span class="cap-rem">${cell.remaining}</span>
           </td>`;
@@ -252,12 +268,16 @@ function renderCapacity() {
               <option value="due"${grid.mode === 'due' ? ' selected' : ''}>Due week</option>
               <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread</option>
             </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="export-capacity">Export CSV</button>
             <button type="button" class="btn btn-ghost btn-sm" id="refresh-capacity">Refresh</button>
           </div>
         </div>
+        ${assumptionsBlock(grid.assumptions || state.assumptions, escapeHtml)}
+        ${teamTabs(grid.teams || state.teams, state.activeTeamFilter, escapeHtml)}
         <div class="cap-legend">
-          <span><span class="legend-dot ok"></span> Under capacity</span>
-          <span><span class="legend-dot warn"></span> Overloaded</span>
+          <span><span class="legend-dot ok"></span> Green — comfortable</span>
+          <span><span class="legend-dot warn"></span> Yellow — tight</span>
+          <span><span class="legend-dot bad"></span> Red — overloaded</span>
           <span class="cap-legend-note">Cells show load (top) and remaining hours (bottom)</span>
         </div>
         <div class="cap-scroll">
@@ -371,10 +391,72 @@ function renderSettings() {
             <span class="field-label">Overload threshold</span>
             <input id="policy-threshold" class="field-input" type="number" step="0.05" value="${policy.overload_threshold ?? 1}" />
           </label>
+          <label class="field">
+            <span class="field-label">Alert proximity (days)</span>
+            <input id="policy-proximity" class="field-input" type="number" value="${policy.alert_proximity_days ?? 14}" />
+          </label>
+          <label class="field">
+            <span class="field-label">Yellow band (h remaining)</span>
+            <input id="policy-yellow" class="field-input" type="number" value="${policy.band_yellow_remaining ?? 8}" />
+          </label>
+          <label class="field">
+            <span class="field-label">Review floor hours</span>
+            <input id="policy-review-floor" class="field-input" type="number" step="0.5" value="${policy.review_floor_hours ?? 0}" />
+          </label>
           <div class="field" style="align-self:end">
             <button type="button" class="btn btn-ghost" id="save-policy">Save policy</button>
           </div>
         </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Assumptions</h2>
+        <div class="form-grid" style="margin-bottom:10px">
+          <label class="field field-span-2">
+            <span class="field-label">New assumption</span>
+            <input id="new-assumption" class="field-input" placeholder="Review ratio held at 35% for Q1" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="add-assumption">Add</button>
+          </div>
+        </div>
+        <ul class="assumptions-list">
+          ${(state.assumptions || []).map((a) => `<li>${escapeHtml(a.text)} <button type="button" class="btn btn-ghost btn-sm btn-del-assumption" data-id="${escapeHtml(a.id)}">Remove</button></li>`).join('') || '<li class="omc-lead">None yet.</li>'}
+        </ul>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">PTO / time off</h2>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Person</span>
+            <select id="pto-resource" class="field-input">
+              ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Start</span>
+            <input id="pto-start" class="field-input" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">End</span>
+            <input id="pto-end" class="field-input" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">Hours/day (blank = full)</span>
+            <input id="pto-hours" class="field-input" type="number" step="0.5" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="add-pto">Add PTO</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Changelog</h2>
+        <ul class="changelog-list">
+          ${(state.changelog || []).slice(0, 15).map((e) => `<li><span class="mono">${escapeHtml(new Date(e.created_at).toLocaleString())}</span> — ${escapeHtml(e.summary)}</li>`).join('') || '<li class="omc-lead">No changes logged yet.</li>'}
+        </ul>
       </section>
 
       <section class="panel" style="margin-bottom:16px">
@@ -564,8 +646,50 @@ async function loadCapacity(mode = 'due') {
   state.capacity = await capacityApi.get(state.token, {
     cycle: state.activeCycleId,
     scenario: state.activeScenarioId || undefined,
+    team: state.activeTeamFilter || undefined,
     mode,
   });
+  state.assumptions = state.capacity?.assumptions || state.assumptions;
+}
+
+async function loadAlerts() {
+  if (!state.activeCycleId) {
+    state.alerts = [];
+    return;
+  }
+  const data = await alertsApi.list(state.token, {
+    cycle: state.activeCycleId,
+    scenario: state.activeScenarioId || undefined,
+  });
+  state.alerts = data.alerts;
+  state.alertCounts = data.counts;
+}
+
+async function loadChangelog() {
+  if (!state.activeCycleId) {
+    state.changelog = [];
+    return;
+  }
+  const { changelog } = await changelogApi.list(state.token, state.activeCycleId);
+  state.changelog = changelog;
+}
+
+async function downloadExport(type) {
+  const url = exportApi.downloadUrl({
+    type,
+    cycle: state.activeCycleId,
+    scenario: state.activeScenarioId,
+    team: state.activeTeamFilter,
+    mode: document.getElementById('cap-mode')?.value || 'due',
+  });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${state.token}` } });
+  if (!res.ok) throw new Error('Export failed');
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${type}-export.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function wireCycleScenarioEvents() {
@@ -648,11 +772,42 @@ function wireSettingsEvents() {
       weekly_capacity_default: Number(document.getElementById('policy-weekly').value),
       review_ratio: Number(document.getElementById('policy-review').value),
       overload_threshold: Number(document.getElementById('policy-threshold').value),
+      alert_proximity_days: Number(document.getElementById('policy-proximity').value),
+      band_yellow_remaining: Number(document.getElementById('policy-yellow').value),
+      review_floor_hours: Number(document.getElementById('policy-review-floor').value),
       spread_lag_weeks: state.policy?.config?.spread_lag_weeks ?? 0,
       working_days_per_week: state.policy?.config?.working_days_per_week ?? 5,
+      band_red_remaining: state.policy?.config?.band_red_remaining ?? 0,
+      review_lag_days: state.policy?.config?.review_lag_days ?? 7,
     };
     const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
     state.policy = policy;
+    await refreshView();
+  });
+
+  document.getElementById('add-assumption')?.addEventListener('click', async () => {
+    const text = document.getElementById('new-assumption')?.value?.trim();
+    if (!text || !state.activeCycleId) return;
+    await assumptionsApi.create(state.token, { cycle_id: state.activeCycleId, text });
+    await refreshView();
+  });
+
+  document.querySelectorAll('.btn-del-assumption').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await assumptionsApi.delete(state.token, btn.dataset.id);
+      await refreshView();
+    });
+  });
+
+  document.getElementById('add-pto')?.addEventListener('click', async () => {
+    if (!state.activeWorkspaceId) return;
+    await timeOffApi.create(state.token, state.activeWorkspaceId, {
+      resource_id: document.getElementById('pto-resource')?.value,
+      start_date: document.getElementById('pto-start')?.value,
+      end_date: document.getElementById('pto-end')?.value,
+      hours_per_day: document.getElementById('pto-hours')?.value || null,
+      reason: 'PTO',
+    });
     await refreshView();
   });
 
@@ -787,6 +942,44 @@ function wirePlanEvents() {
     state.importPreview = null;
     render();
   });
+
+  document.getElementById('export-plan')?.addEventListener('click', async () => {
+    try {
+      await downloadExport('plan');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
+  document.getElementById('check-drift')?.addEventListener('click', async () => {
+    const data = await exportApi.drift(state.token, {
+      cycle: state.activeCycleId,
+      scenario: state.activeScenarioId,
+    });
+    state.drift = data;
+    alert(`Drift vs last import: +${data.added} / ~${data.modified} / -${data.removed}`);
+  });
+}
+
+function wireAlertsEvents() {
+  wireWorkspaceEvents();
+  wireCycleScenarioEvents();
+  document.getElementById('refresh-alerts')?.addEventListener('click', async () => {
+    await loadAlerts();
+    render();
+  });
+}
+
+function renderAlerts() {
+  return renderShell({
+    activeNav: 'alerts',
+    body: renderAlertsView({
+      state,
+      escapeHtml,
+      cycleOptions,
+      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
+    }),
+  });
 }
 
 function wireDependencyEvents() {
@@ -834,6 +1027,24 @@ function wireDependencyEvents() {
 function wireCapacityEvents() {
   wireWorkspaceEvents();
   wireCycleScenarioEvents();
+
+  document.querySelectorAll('.team-tab').forEach((tab) => {
+    tab.addEventListener('click', async () => {
+      state.activeTeamFilter = tab.dataset.team || '';
+      const mode = document.getElementById('cap-mode')?.value || 'due';
+      await loadCapacity(mode);
+      render();
+    });
+  });
+
+  document.getElementById('export-capacity')?.addEventListener('click', async () => {
+    try {
+      await downloadExport('capacity');
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   document.getElementById('cap-mode')?.addEventListener('change', async (e) => {
     await loadCapacity(e.target.value);
     render();
@@ -853,6 +1064,12 @@ async function refreshView() {
     await loadCapacity(mode);
   }
   if (route === 'dependencies') await loadScenarioData();
+  if (route === 'alerts') await loadAlerts();
+  if (route === 'settings') await loadChangelog();
+  if (state.activeCycleId) {
+    const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
+    state.assumptions = assumptions;
+  }
   render();
 }
 
@@ -862,6 +1079,7 @@ function render() {
   let html;
   if (route === 'plan') html = renderPlan();
   else if (route === 'dependencies') html = renderDependencies();
+  else if (route === 'alerts') html = renderAlerts();
   else if (route === 'capacity') html = renderCapacity();
   else if (route === 'settings') html = renderSettings();
   else html = renderHome();
@@ -872,6 +1090,7 @@ function render() {
   else if (route === 'plan') wirePlanEvents();
   else if (route === 'dependencies') wireDependencyEvents();
   else if (route === 'capacity') wireCapacityEvents();
+  else if (route === 'alerts') wireAlertsEvents();
   else wireWorkspaceEvents();
 }
 
@@ -900,12 +1119,18 @@ async function boot() {
       const route = currentRoute();
       if (route === 'capacity') await loadCapacity('due');
       if (route === 'dependencies') await loadScenarioData();
+      if (route === 'alerts') await loadAlerts();
       render();
     });
 
     const route = currentRoute();
     if (route === 'capacity') await loadCapacity('due');
     if (route === 'dependencies') await loadScenarioData();
+    if (route === 'alerts') await loadAlerts();
+    if (state.activeCycleId) {
+      const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
+      state.assumptions = assumptions;
+    }
     render();
   } catch (err) {
     console.error(err);

@@ -28,9 +28,8 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 | Done | **H1.5** | Workspaces (isolated resource pools + cycles) |
 | Done | **H2** | Plan Builder UI, scenarios, CSV import |
 | Done | **C2** | Dependencies + readiness tracker (core) |
-| Next | **C1** | Capacity hardening (availability overlay, assumptions panel) |
-| Next | **H3 / C4** | Export + in-app alerts |
-| Later | **P2** | External pull/publish (Jira, etc.) |
+| Done | **C1** | Capacity hardening: bands, assumptions, PTO, effort model |
+| Done | **H3 / C4** | CSV export, in-app alerts, import drift |
 | Later | **P1** | Additional planning profiles |
 
 See [BUILD_PLAN.md](./BUILD_PLAN.md) for full detail.

@@ -364,8 +364,9 @@ Optional: `<a href="/one-more-column/">One More Column</a>` on inaayat.xyz index
 | **H1.5 — Workspaces** | Done | Top-level isolation: workspace-scoped resources + cycles; workspace switcher; `cycle_type` (annual/quarter/sprint); FY→FY is new cycle in same workspace | Multiple team plans with separate resource pools; one account accesses all workspaces |
 | **H2 — Plan Builder on Postgres** | Done | Direct entry + CSV import → `plan_items`; scenario create/clone; scenario toggle on capacity | One cycle planned in-app without external pull |
 | **C2 — Dependencies & readiness** | Done (core) | `dependencies` table, gate types, readiness summary, `ready_to_start` / `date_policy` engines | Readiness % view from Postgres gates |
-| **C1 — Capacity harden** | Next | Availability overlay, assumptions panel, manual tasks in capacity math | Remaining-capacity view matches planner intuition |
-| **H3 / C4 — Export + polish** | Next | XLSX/CSV export; in-app alerts; app roles | Export + overload alerts work from Postgres-only data |
+| **C1 — Capacity harden** | Done | Availability/PTO overlay, assumptions panel, three-band coloring, team tabs, effort model, changelog | Remaining-capacity view with honest PTO deduction |
+| **H3 / C4 — Export + polish** | Done | CSV export (plan + capacity), in-app alerts, import drift compare | Export + overload alerts from Postgres-only data |
+| **P2 — External integrations** | Later | Jira pull/publish, HR calendars | Explicit publish + audit |
 
 **Stack defaults:**
 

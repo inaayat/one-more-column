@@ -9,6 +9,10 @@ import { handlePolicy } from '../lib/handlers/policy.js';
 import { handleResources } from '../lib/handlers/resources.js';
 import { handlePlanItems } from '../lib/handlers/plan-items.js';
 import { handleCapacity } from '../lib/handlers/capacity.js';
+import { handleAssumptions, handleChangelog } from '../lib/handlers/assumptions.js';
+import { handleAlerts } from '../lib/handlers/alerts.js';
+import { handleExport } from '../lib/handlers/export.js';
+import { handleTimeOff } from '../lib/handlers/time-off.js';
 
 export default async function handler(req, res) {
   const route = String(req.query?.route || '').trim();
@@ -33,6 +37,16 @@ export default async function handler(req, res) {
       return handlePlanItems(req, res);
     case 'capacity':
       return handleCapacity(req, res);
+    case 'assumptions':
+      return handleAssumptions(req, res);
+    case 'changelog':
+      return handleChangelog(req, res);
+    case 'alerts':
+      return handleAlerts(req, res);
+    case 'export':
+      return handleExport(req, res);
+    case 'time-off':
+      return handleTimeOff(req, res);
     default:
       res.status(404).json({ error: 'Unknown OMC route.' });
   }
