@@ -121,6 +121,7 @@ body {
 }
 .content-wide { max-width: 1200px; }
 .content-centered { max-width: 720px; }
+.content-setup { max-width: 1400px; }
 
 .header-nav { display: flex; gap: 4px; margin: 0 auto; }
 .nav-link {
@@ -380,7 +381,8 @@ body {
   margin: 14px 0 0;
   padding: 0;
   display: grid;
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
 }
 .setup-progress-step {
   display: flex;
@@ -440,6 +442,65 @@ body {
 .setup-section-current {
   border-color: var(--color-accent-mint);
   box-shadow: 0 0 0 3px rgba(27, 219, 173, 0.12), var(--shadow-panel);
+}
+
+.setup-steps-row,
+.setup-optional-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.setup-steps-row {
+  margin-bottom: 20px;
+}
+
+.setup-form-grid {
+  grid-template-columns: 1fr;
+}
+
+.setup-steps-row .setup-section,
+.setup-optional-row .panel {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.setup-steps-row .panel-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.setup-steps-row .panel-head .omc-section-title {
+  margin-bottom: 0;
+}
+
+.setup-table-scroll {
+  overflow-x: auto;
+  margin-top: 4px;
+}
+
+.setup-steps-row .data-table {
+  font-size: 11px;
+}
+
+.setup-steps-row .data-table th,
+.setup-steps-row .data-table td {
+  padding: 6px 4px;
+}
+
+.setup-optional-row .changelog-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+@media (max-width: 1100px) {
+  .setup-steps-row,
+  .setup-optional-row,
+  .setup-progress-steps {
+    grid-template-columns: 1fr;
+  }
 }
 
 .guide-tips {
