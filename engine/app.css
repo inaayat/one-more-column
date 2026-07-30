@@ -251,6 +251,27 @@ code {
   border-radius: 4px;
 }
 
+.legend-dot.warn { background: #f87171; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
+}
+.badge-ok { background: var(--color-accent-soft); color: var(--color-accent); }
+.badge-warn { background: #fef2f2; color: #b91c1c; }
+.import-preview {
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--color-surface-muted);
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+}
+
 .workspace-switcher { display: flex; align-items: center; }
 .workspace-select { min-width: 140px; max-width: 200px; }
 .sr-only {
