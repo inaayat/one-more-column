@@ -20,6 +20,7 @@ This specification is intentionally split into **two parts**:
 | **[Part B — Flexible Planning Platform](#part-b--flexible-planning-platform-aspirational)** | Aspirational vision: generalize beyond SOX to many task types with flexible inputs, on a **live hosted site with database + auth** (not GitHub Pages) | Long-term architecture; do not conflate with Part A delivery |
 
 **Related docs:**
+- [`BUILD_PLAN.md`](./BUILD_PLAN.md) — complex phased delivery plan (Track A / H / B) + key functionality gates
 - [`HOSTED_APP_ARCHITECTURE.md`](./HOSTED_APP_ARCHITECTURE.md) — technical deep dive for Part B hosting (API, Postgres, SSO, cutover)
 - [`templates/blank-styling-template.html`](./templates/blank-styling-template.html) — blank UI shell / design tokens
 
