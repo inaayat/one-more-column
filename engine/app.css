@@ -418,6 +418,18 @@ body {
   font-size: 13px;
   color: var(--color-text-secondary);
 }
+.setup-progress-sub {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.setup-optional-label {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .setup-section {
   background: var(--color-surface);
   border: 1px solid var(--color-border);

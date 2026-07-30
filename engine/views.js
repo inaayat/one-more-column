@@ -23,15 +23,16 @@ export function renderSetupProgressBanner(state) {
     })
     .join('');
 
-  const title = progress.setupComplete ? 'Almost there' : "Let's get you set up";
+  const title = progress.setupComplete ? 'You are almost done' : 'Start here';
   const lead = progress.nextStep
-    ? `<p class="setup-progress-lead"><strong>Up next:</strong> ${progress.nextStep.label}</p>`
+    ? `<p class="setup-progress-lead"><strong>Do this next:</strong> ${progress.nextStep.label}</p>`
     : '';
 
   return `
     <section class="panel setup-progress-banner" aria-label="Setup progress">
       <h2 class="setup-progress-title">${title}</h2>
-      <p class="omc-lead">Complete these steps in order. The highlighted section below is where you should work now.</p>
+      <p class="omc-lead">There are three things to set up on this page. Work top to bottom. The section with the green border is the one to fill in now.</p>
+      <p class="omc-lead setup-progress-sub">After that, you will add your tasks in <strong>Planner</strong> and check hours in <strong>Capacity</strong>.</p>
       <ol class="setup-progress-steps">${stepItems}</ol>
       ${lead}
     </section>
@@ -74,7 +75,7 @@ export function renderHomeView({ state, escapeHtml }) {
         ${setupStatus}
         <span class="home-status-detail">
           ${escapeHtml(workspace?.name || 'No workspace')}
-          ${hasCycle ? ` · ${escapeHtml(cycle.name)}` : ''}
+          ${cycle ? ` · ${escapeHtml(cycle.name)}` : ''}
         </span>
       </div>
       <div class="btn-row home-cta">
@@ -393,7 +394,7 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
       <div class="panel-head">
         <div>
           <h1 class="omc-title">Planner</h1>
-          <p class="omc-lead">Spreadsheet-style plan: each row is work to do. Set gates, dates, and duration inline — dependencies stay on the same row.</p>
+          <p class="omc-lead">Each row is a piece of work. Add how long it takes, when it is due, and what has to happen before you can start.</p>
         </div>
         <div class="btn-row">
           <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
@@ -416,8 +417,8 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
       </div>
       <p class="planner-mode-note omc-lead">
         ${isLivePlan
-          ? '<strong>Live plan</strong> — this is your current finalized view. You can still edit anytime; changes save when you click Save plan.'
-          : '<strong>Working draft</strong> — experiment here, then mark as live plan when ready.'}
+          ? '<strong>Live plan</strong> — this is the version you are working from. You can still change it anytime; click Save plan when you are done editing.'
+          : '<strong>Draft</strong> — try ideas here first. When you are happy, click Mark as live plan.'}
       </p>
 
       <div class="form-grid planner-quick-add" style="margin-bottom:14px">
