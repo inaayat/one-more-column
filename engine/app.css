@@ -159,6 +159,28 @@ body {
 .cap-week { min-width: 72px; font-size: 10px; color: var(--color-text-secondary); }
 .cap-cell { min-width: 72px; }
 .cap-cell.overloaded { background: #fef2f2; }
+.cap-band-green { background: #f0fdf9; }
+.cap-band-yellow { background: #fffbeb; }
+.cap-band-red { background: #fef2f2; }
+.legend-dot.bad { background: #ef4444; }
+
+.team-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.team-tab {
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+.team-tab.active { background: var(--color-accent-soft); border-color: var(--color-accent-mint); color: var(--color-accent); }
+.assumptions-panel { font-size: 13px; margin-bottom: 12px; padding: 10px 12px; background: var(--color-surface-muted); border-radius: var(--radius-lg); }
+.assumptions-panel ul { margin: 6px 0 0 18px; }
+.assumptions-list, .changelog-list { font-size: 13px; margin: 0; padding-left: 18px; line-height: 1.6; }
+.alert-summary { display: flex; gap: 10px; margin-bottom: 14px; }
+.field-span-2 { grid-column: span 2; }
 .cap-load { display: block; font-weight: 700; color: var(--color-text-strong); }
 .cap-rem { display: block; font-size: 10px; color: var(--color-text-muted); }
 .cap-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--color-text-secondary); margin-bottom: 8px; }

@@ -1,5 +1,79 @@
 /** Plan Builder + Dependencies view helpers (H2 / C2). */
 
+export function renderAlertsView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
+  const groups = { high: [], medium: [], low: [] };
+  for (const alert of state.alerts || []) {
+    groups[alert.severity]?.push(alert);
+  }
+
+  const renderGroup = (title, items, cls) => {
+    if (!items.length) return '';
+    const rows = items
+      .map(
+        (a) => `<tr>
+          <td><span class="badge ${cls}">${escapeHtml(a.type)}</span></td>
+          <td>${escapeHtml(a.message)}</td>
+          <td>${escapeHtml(a.team || a.week || a.due_week || '—')}</td>
+        </tr>`,
+      )
+      .join('');
+    return `<h3 class="omc-section-title">${title} (${items.length})</h3>
+      <table class="data-table" style="margin-bottom:16px"><tbody>${rows}</tbody></table>`;
+  };
+
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h1 class="omc-title">Alerts</h1>
+          <p class="omc-lead">Overload, due-date proximity, and readiness gaps — from Postgres only.</p>
+        </div>
+        <div class="btn-row">
+          <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
+          <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
+          <button type="button" class="btn btn-ghost btn-sm" id="refresh-alerts">Refresh</button>
+        </div>
+      </div>
+      <div class="alert-summary">
+        <span class="badge badge-warn">High: ${state.alertCounts?.high ?? 0}</span>
+        <span class="badge">Medium: ${state.alertCounts?.medium ?? 0}</span>
+        <span class="badge badge-ok">Low: ${state.alertCounts?.low ?? 0}</span>
+      </div>
+      ${renderGroup('High severity', groups.high, 'badge-warn')}
+      ${renderGroup('Medium severity', groups.medium, '')}
+      ${renderGroup('Low severity', groups.low, 'badge-ok')}
+      ${!state.alerts?.length ? '<p class="omc-lead">No alerts for this cycle/scenario.</p>' : ''}
+    </section>
+  `;
+}
+
+export function assumptionsBlock(assumptions, escapeHtml) {
+  if (!assumptions?.length) {
+    return '<p class="omc-lead assumptions-panel">No assumptions documented for this cycle.</p>';
+  }
+  const items = assumptions
+    .map((a) => `<li>${escapeHtml(a.text)}</li>`)
+    .join('');
+  return `<div class="assumptions-panel"><strong>Assumptions</strong><ul>${items}</ul></div>`;
+}
+
+export function teamTabs(teams, activeTeam, escapeHtml) {
+  const tabs = [
+    `<button type="button" class="team-tab${!activeTeam ? ' active' : ''}" data-team="">All</button>`,
+    ...teams.map(
+      (t) =>
+        `<button type="button" class="team-tab${activeTeam === t ? ' active' : ''}" data-team="${escapeAttr(t)}">${escapeHtml(t)}</button>`,
+    ),
+  ];
+  return `<div class="team-tabs">${tabs.join('')}</div>`;
+}
+
+export function capacityCellClass(cell) {
+  if (cell.band === 'red' || cell.overloaded) return 'cap-cell cap-band-red';
+  if (cell.band === 'yellow') return 'cap-cell cap-band-yellow';
+  return 'cap-cell cap-band-green';
+}
+
 export function scenarioOptions(scenarios, selectedId) {
   if (!scenarios?.length) return '<option value="">No scenarios</option>';
   return scenarios
@@ -53,6 +127,8 @@ export function renderPlanView({ state, escapeHtml, cycleOptions, scenarioOption
           <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
           <button type="button" class="btn btn-ghost btn-sm" id="create-scenario">New scenario</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export CSV</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Check drift</button>
         </div>
       </div>
 

@@ -2,6 +2,7 @@
  * Pure capacity engine: allocate plan item hours to assignee weeks.
  */
 import { formatWeekKey, weekStart } from './availability.js';
+import { deriveEffortHours } from './effort.js';
 
 /**
  * @param {object[]} planItems
@@ -18,9 +19,7 @@ export function computeWeeklyLoad(planItems, mode = 'due', policy = {}) {
 
     const work = Number(item.work_hours || 0);
     const review = Number(item.review_hours || 0);
-    const ratio = Number(policy.review_ratio ?? 0.35);
-    const derivedReview = review > 0 ? review : work * ratio;
-    const totalHours = work + derivedReview;
+    const { total_hours: totalHours } = deriveEffortHours(work, review, policy);
 
     if (totalHours <= 0) continue;
 
@@ -69,6 +68,8 @@ export function buildCapacityGrid({
   policy = {},
 }) {
   const threshold = Number(policy.overload_threshold ?? 1.0);
+  const yellowRemaining = Number(policy.band_yellow_remaining ?? 8);
+  const redRemaining = Number(policy.band_red_remaining ?? 0);
   const rows = [];
 
   for (const resource of resources) {
@@ -80,12 +81,16 @@ export function buildCapacityGrid({
       const load = round(loadWeeks.get(weekKey) ?? 0);
       const remaining = round(capacity - load);
       const utilization = capacity > 0 ? load / capacity : load > 0 ? Infinity : 0;
+      const overloaded = capacity > 0 ? utilization > threshold : load > 0;
+      const band = classifyBand(remaining, overloaded, yellowRemaining, redRemaining);
       return {
         week: weekKey,
         capacity,
         load,
         remaining,
-        overloaded: capacity > 0 ? utilization > threshold : load > 0,
+        utilization: round(utilization),
+        overloaded,
+        band,
       };
     });
 
@@ -102,7 +107,13 @@ export function buildCapacityGrid({
     });
   }
 
-  return { weeks, rows, mode: 'due', threshold };
+  return { weeks, rows, mode: 'due', threshold, bands: { yellowRemaining, redRemaining } };
+}
+
+function classifyBand(remaining, overloaded, yellowRemaining, redRemaining) {
+  if (overloaded || remaining <= redRemaining) return 'red';
+  if (remaining <= yellowRemaining) return 'yellow';
+  return 'green';
 }
 
 function round(n) {

@@ -121,3 +121,50 @@ export const capacityApi = {
     return apiFetch(`/api/omc-capacity?${params}`, { token });
   },
 };
+
+export const assumptionsApi = {
+  list: (token, cycleId) =>
+    apiFetch(`/api/omc-assumptions?cycle=${encodeURIComponent(cycleId)}`, { token }),
+  create: (token, body) => apiFetch('/api/omc-assumptions', { method: 'POST', body, token }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-assumptions?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+};
+
+export const changelogApi = {
+  list: (token, cycleId, limit = 50) =>
+    apiFetch(`/api/omc-changelog?cycle=${encodeURIComponent(cycleId)}&limit=${limit}`, { token }),
+};
+
+export const alertsApi = {
+  list: (token, { cycle, scenario } = {}) => {
+    const params = new URLSearchParams({ cycle });
+    if (scenario) params.set('scenario', scenario);
+    return apiFetch(`/api/omc-alerts?${params}`, { token });
+  },
+};
+
+export const exportApi = {
+  downloadUrl: ({ type, cycle, scenario, team, mode, format = 'csv' }) => {
+    const params = new URLSearchParams({ type, cycle, format });
+    if (scenario) params.set('scenario', scenario);
+    if (team) params.set('team', team);
+    if (mode) params.set('mode', mode);
+    return `/api/omc-export?${params}`;
+  },
+  drift: (token, { cycle, scenario } = {}) => {
+    const params = new URLSearchParams({ type: 'drift', cycle, format: 'json' });
+    if (scenario) params.set('scenario', scenario);
+    return apiFetch(`/api/omc-export?${params}`, { token });
+  },
+};
+
+export const timeOffApi = {
+  create: (token, workspaceId, body) =>
+    apiFetch(`/api/omc-time-off?workspace=${encodeURIComponent(workspaceId)}`, {
+      method: 'POST',
+      body,
+      token,
+    }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-time-off?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+};
