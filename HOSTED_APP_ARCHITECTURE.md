@@ -1,25 +1,28 @@
 # Flexible Planning Platform — Hosted Application Architecture
 
-**Status:** Draft (opinionated)  
+**Status:** Draft (revised for inaayat.xyz)  
 **Belongs to:** [Part B](./CAPACITY_PLANNER_SPECIFICATION.md#part-b--flexible-planning-platform-aspirational) of [`CAPACITY_PLANNER_SPECIFICATION.md`](./CAPACITY_PLANNER_SPECIFICATION.md)  
-**Not:** Part A near-term SOX Capacity Planner delivery (that remains GitHub Pages–oriented unless/until an explicit rehost decision)  
+**Sequencing detail:** [`BUILD_PLAN.md`](./BUILD_PLAN.md) Track H  
+**Not:** Part A near-term SOX Capacity Planner delivery on GitHub Pages (that remains Pages-oriented until/unless Track H cutover)  
 **Styling reference:** [`templates/blank-styling-template.html`](./templates/blank-styling-template.html)  
+**Production URL:** `https://inaayat.xyz/one-more-column/`  
+**Auth twin:** `https://inaayat.xyz/amc-a-lister/` in repo `inaayat/replacing-nerd-jobs`
 
-This is the **technical deep dive for Part B**: what a flexible planning platform would look like if hosted as a normal web application with a persistent database, authentication, and server-side APIs — instead of a static GitHub Pages site regenerated from CI.
+This is the **technical deep dive for Part B / Track H**: what a flexible planning platform looks like hosted as a normal web application with a persistent database and authentication — specifically on **inaayat.xyz** via a **separate Vercel project + main-site path rewrites**, reusing **Neon Auth** exactly like AMC A-Lister.
 
-Use **Part A** of the main spec for SOX Capacity Planner behavior and next steps (dependency tracker / SOX Plan Builder). Use **this document** when evaluating or designing the live-site architecture.
+Use **Part A** of the main spec for SOX Capacity Planner behavior and next steps. Use **[`BUILD_PLAN.md`](./BUILD_PLAN.md)** for phased delivery. Use **this document** for runtime architecture.
 
 ---
 
-## 1. Why re-host (Part B)
+## 1. Why re-host (Part B / Track H)
 
 The current GitHub Pages pipeline is excellent for a read-only SOX capacity dashboard (Part A). It breaks down when you need a flexible, multi-user planning platform:
 
-| Need | Pages + static HTML | Hosted app |
+| Need | Pages + static HTML | Hosted app on inaayat.xyz |
 |---|---|---|
-| Shared team assignments (not localStorage) | No | Yes |
+| Shared team assignments (not localStorage) | No | Yes (Neon Postgres) |
 | Editable Plan Builder / assumptions | Awkward (PRs or Excel) | First-class |
-| Auth / role-based edit vs view | No (public to repo readers) | Required |
+| Auth / role-based edit vs view | No (public to repo readers) | Neon Auth + app roles |
 | Write scenarios, baselines, Non-Jira tasks | Files / SharePoint iframe | DB |
 | Publish plan → Jira with audit trail | Manual | API job + ACL |
 | Multi-user concurrent planning | Conflicts via Excel | Optimistic locking / scenarios |
@@ -29,68 +32,95 @@ The current GitHub Pages pipeline is excellent for a read-only SOX capacity dash
 
 ---
 
-## 2. Target architecture
+## 2. Target architecture (inaayat.xyz path proxy)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Browser (SPA or SSR)                                        │
-│  Mulish design system · section/view nav · capacity grid     │
-│  Auth session (cookie / OIDC)                                │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ HTTPS / JSON API
-┌───────────────────────────▼─────────────────────────────────┐
-│  Application API                                             │
-│  AuthZ · Plan CRUD · Capacity compute · Sync orchestration   │
-└───────┬─────────────────────┬───────────────────┬───────────┘
-        │                     │                   │
-        ▼                     ▼                   ▼
-┌───────────────┐   ┌─────────────────┐   ┌──────────────────┐
-│ PostgreSQL    │   │ Job workers     │   │ External adapters│
-│ (SoR)         │   │ sync, publish,  │   │ Jira, RCM, PTO,  │
-│               │   │ alerts, export  │   │ calendar, email  │
-└───────────────┘   └─────────────────┘   └──────────────────┘
+Browser  https://inaayat.xyz/one-more-column/
+   │
+   │  static + engine/*.js   ──rewrite──►  one-more-column.vercel.app/one-more-column/
+   │  /api/auth-config       ──stays on──►  main inaayat.xyz project (shared Neon Auth URL)
+   │  /api/omc-*             ──rewrite──►  one-more-column.vercel.app/api/omc-*
+   │  /account.html?next=…   ──stays on──►  main site (same login as AMC A-Lister)
+   ▼
+Application API (Vercel serverless in this repo)
+   AuthZ (Neon JWT) · Plan CRUD · Capacity compute · Sync orchestration
+   │
+   ├── Neon Postgres (SoR)
+   ├── Job workers / cron (sync, publish, alerts, export)
+   └── External adapters (Jira, RCM, PTO, calendar, …)
 ```
 
-### 2.1 Recommended stack (opinionated)
+### 2.1 Why this does **not** complicate creation
 
-Pick boring, maintainable defaults that fit internal hosting:
+Same-origin with `/amc-a-lister/` means the existing account page and `/api/auth-config` work without inventing Okta/OIDC. Work is mostly **copy/adapt** of proven files from `replacing-nerd-jobs`, plus a **small rewrite PR** on the main site.
+
+| Piece | Source of truth / copy from |
+|---|---|
+| Client auth | `amc-a-lister/engine/auth.js` + `engine/neon-browser-auth.js` |
+| Server JWT verify | `lib/neon-auth.js` + pattern from `api/me.js` |
+| Path base | `<base href="/one-more-column/" />` (same idea as `/amc-a-lister/`) |
+| API prefix | `/api/omc-*` (parallel to `alist-*`, `pc-*`) |
+| Main rewrites | `replacing-nerd-jobs/vercel.json` |
+
+**Alternative (simpler ops, still separate git repo):** add this repo as a **git submodule** at `one-more-column/` inside `replacing-nerd-jobs` — one Vercel project, shared env automatically; releases bump the submodule pointer. Prefer **rewrites** for independent deploys unless ops overhead dominates.
+
+### 2.2 Recommended stack (opinionated — inaayat.xyz)
 
 | Layer | Choice | Why |
 |---|---|---|
-| API | Python (FastAPI) **or** Node (Nest/Express) | Team already has Python in-repo; FastAPI keeps sync/calc logic portable |
-| DB | **PostgreSQL** | Multi-user, JSONB for attribute bags, proper authz joins |
-| Auth | **OIDC / Okta (or corporate SSO)** + app roles | No custom password store |
-| Frontend | React/Vite SPA **or** server-rendered + HTMX | SPA if Plan Builder is highly interactive; keep CSS tokens from blank template |
-| Jobs | Queue (Redis + worker) or hosted cron | Replace GHA hourly sync |
-| Files | Object storage for Excel exports | Replace `dist/` commit |
-| Hosting | Internal PaaS / container (ECS, Cloud Run, etc.) | Not GitHub Pages |
+| Hosting | Vercel project for this repo + path rewrites from main site | Matches packing-cubes / A-Lister ops model |
+| API | Vercel serverless (`api/one-more-column.js`) | Same as `api/alist.js` / `api/packing-cubes.js` |
+| DB | **Neon Postgres** (`DATABASE_URL`) | Already used by inaayat.xyz apps |
+| Auth | **Neon Auth** (`NEON_AUTH_BASE_URL` + `jose` JWKS) | Same users as AMC A-Lister (`auth.sub`) |
+| Frontend | Static HTML + ES modules under `/one-more-column/` | Lowest friction with `<base href>`; blank template tokens |
+| Jobs | Vercel cron or queue later | Replace GHA hourly sync when ready |
+| Files | Object storage or ephemeral download for Excel exports | Replace `dist/` commit |
 
 **Do not** keep SQLite as the production SoR. SQLite is fine for local dev mirrors of Jira snapshots only.
 
-### 2.2 What replaces the Pages pipeline
+Corporate Okta / ECS / Cloud Run from earlier drafts are **out of scope** for this personal-site deploy unless a separate enterprise mirror is required later.
 
-| Today (Pages) | Hosted |
+### 2.3 What replaces the Pages pipeline
+
+| Today (Pages) | Hosted (inaayat.xyz) |
 |---|---|
-| `sync.py` in GHA → `capacity.db` | Worker job → `jira_issues` tables |
-| `generate.py` embeds all data in HTML/JS | API returns capacity matrices; UI renders |
-| `patch_html.py` + `gh-pages` | Container deploy / CDN for static assets only |
+| `sync.py` in GHA → `capacity.db` | Worker/API job → `jira_issues` tables |
+| `generate.py` embeds all data in HTML/JS | `/api/omc-*` returns capacity matrices; UI renders |
+| `patch_html.py` + `gh-pages` | Vercel deploy of this repo |
 | `localStorage` team prefs | `user_preferences` + shared `resource.team` |
 | `config.deactive_users.json` in git | Admin UI → `resources.active` |
 | SharePoint Non-Jira iframe | `plan_items` with `source=manual` |
 | “Refresh on GitHub” button | Authenticated **Sync now** → enqueues job |
-| Public Pages URL | Private URL + SSO |
+| Public Pages URL | `inaayat.xyz/one-more-column/` + Neon Auth |
 
 ---
 
 ## 3. Authentication & authorization
 
-### 3.1 Authn
+### 3.1 Authn (Neon Auth — same as AMC A-Lister)
 
-- Corporate SSO via OIDC (Okta / Azure AD — whatever the organization already uses).
-- Session cookie (HTTP-only, Secure, SameSite) or short-lived access token + refresh.
-- No anonymous access to planning data (SOX staffing is sensitive enough to lock down).
+- Browser loads Neon Auth client URL from **`GET /api/auth-config`** on the **main** inaayat.xyz project (not the child).
+- Login: `/account.html?next=/one-more-column/`
+- Logout redirect: `/one-more-column/`
+- API routes expect `Authorization: Bearer <JWT>`; verify with `lib/neon-auth.js` (`getAuth(req)` → payload or null).
+- User id for joins: **`auth.sub`** — identical to AMC A-Lister / packing-cubes user ids when using the same Neon Auth project.
 
-### 3.2 Roles (start simple)
+```
+const auth = await getAuth(req);
+if (!auth) return res.status(401).json({ error: 'Not signed in.' });
+const userId = auth.sub;
+```
+
+### 3.2 Env vars
+
+| Variable | Where | Notes |
+|---|---|---|
+| `NEON_AUTH_BASE_URL` | Main site (already) + **child** project | Child needs it for JWT verify on `/api/omc-*` and for preview deploys |
+| `DATABASE_URL` | Main site (already) + **child** project | Child API needs DB when proxied or hit directly |
+
+Neon Console: `inaayat.xyz` trusted domain already covers the path setup. Add `one-more-column.vercel.app` only if preview/direct child URLs matter.
+
+### 3.3 Roles (start simple — app-layer on Neon identity)
 
 | Role | Capabilities |
 |---|---|
@@ -99,15 +129,52 @@ Pick boring, maintainable defaults that fit internal hosting:
 | **Publisher** | Approve & publish scenario → Jira; manage baselines |
 | **Admin** | Policies, resources, deactive flags, provider credentials, field registry |
 
-Map groups from IdP → roles. Default new users to Viewer.
+Map via allowlist / `user_roles` table keyed on Neon `sub` (default Viewer). IdP group claims are optional later.
 
-### 3.3 Authz rules of thumb
+### 3.4 Authz rules of thumb
 
 - Reads: any authenticated role with app access.
 - Writes to PlanItems / Policies: Planner+.
 - Jira publish: Publisher+ (and always audited).
-- Credential management (Jira token): Admin only; tokens in secrets manager, never in git.
-- Row-level (optional later): filter by Control Group / team for IT vs BP — not required for MVP.
+- Credential management (Jira token): Admin only; tokens in Vercel env / secrets manager, never in git.
+- Row-level (optional later): filter by Control Group / team — not required for MVP.
+
+### 3.5 Child + main vercel wiring
+
+**Child (`one-more-column`) `vercel.json`:**
+
+```json
+{
+  "framework": null,
+  "outputDirectory": ".",
+  "rewrites": [
+    { "source": "/api/omc-:route", "destination": "/api/one-more-column?route=:route" }
+  ]
+}
+```
+
+**Main (`replacing-nerd-jobs`) additions:**
+
+```json
+{
+  "source": "/one-more-column",
+  "destination": "https://one-more-column.vercel.app/one-more-column"
+},
+{
+  "source": "/one-more-column/:path*",
+  "destination": "https://one-more-column.vercel.app/one-more-column/:path*"
+},
+{
+  "source": "/api/omc-:route",
+  "destination": "https://one-more-column.vercel.app/api/omc-:route"
+}
+```
+
+Every HTML page in this app:
+
+```html
+<base href="/one-more-column/" />
+```
 
 ---
 
@@ -166,39 +233,41 @@ audit_events         -- who/what/when for edits & publishes
 
 ---
 
-## 5. API surface (illustrative)
+## 5. API surface (illustrative — `omc-` prefix)
+
+Exposed on inaayat.xyz as `/api/omc-:route` → child `/api/one-more-column?route=:route`.
 
 ```
-POST   /auth/callback | session handled by SSO middleware
+GET    /api/auth-config          -- MAIN site only (do not reimplement on child for prod)
 
-GET    /api/cycles
-POST   /api/cycles
-GET    /api/cycles/:id/policy
-PUT    /api/cycles/:id/policy
+GET    /api/omc-me
+GET    /api/omc-cycles
+POST   /api/omc-cycles
+GET    /api/omc-policy
+PUT    /api/omc-policy
 
-GET    /api/cycles/:id/plan-items?scenario=
-PATCH  /api/plan-items/:id
-POST   /api/plan-items
-POST   /api/cycles/:id/dependencies
+GET    /api/omc-plan-items?scenario=
+PATCH  /api/omc-plan-items
+POST   /api/omc-plan-items
+POST   /api/omc-dependencies
 
-GET    /api/capacity?cycle=&scenario=&mode=due|spread&team=
-GET    /api/resources
-PATCH  /api/resources/:id
+GET    /api/omc-capacity?cycle=&scenario=&mode=due|spread&team=
+GET    /api/omc-resources
+PATCH  /api/omc-resources
 
-GET    /api/alerts
-GET    /api/jira/issues
-POST   /api/jira/jql-preview
+GET    /api/omc-alerts
+GET    /api/omc-jira-issues
+POST   /api/omc-jira-jql-preview
 
-POST   /api/sync/jira          -- enqueue (Admin/Planner)
-GET    /api/sync/runs/:id
-POST   /api/scenarios/:id/publish
-GET    /api/exports/capacity.xlsx
+POST   /api/omc-sync-jira
+GET    /api/omc-sync-runs
+POST   /api/omc-publish
+GET    /api/omc-export-capacity
 
-GET    /api/me
-PATCH  /api/me/preferences
+PATCH  /api/omc-preferences
 ```
 
-All mutating routes require CSRF protection (cookie session) or equivalent.
+All mutating routes require Bearer JWT (`getAuth`) and CSRF-equivalent discipline for cookie flows if any; AMC pattern uses Bearer from Neon client.
 
 ---
 
@@ -206,28 +275,30 @@ All mutating routes require CSRF protection (cookie session) or equivalent.
 
 | Module | Responsibility |
 |---|---|
-| `providers.jira` | Discover fields, fetch issues, normalize (port of `sync.py` / `jira_api.py`) |
+| `engine/auth.js` | Neon session, login/logout links (AMC pattern) |
+| `lib/neon-auth.js` | JWT verify for API |
+| `providers.jira` | Discover fields, fetch issues, normalize |
 | `engine.ready_to_test` | Excel ready-gate rules |
 | `engine.dates` | Review +7/+21, phase thresholds |
 | `engine.effort` | Review % / floor policies |
 | `engine.availability` | Profiles − time off |
-| `engine.capacity` | Due-week + spread allocation (port from `generate.py`) |
-| `engine.alerts` | Configurable rules (not GitHub-issue stubs) |
+| `engine.capacity` | Due-week + spread allocation |
+| `engine.alerts` | Configurable rules |
 | `services.publish` | Diff scenario vs Jira; writeback |
 | `services.export` | Excel workbook generation |
-| `api.*` | HTTP adapters |
+| `api/one-more-column.js` | HTTP router for `omc-*` |
 
-**Opinion:** Port calculation functions first as pure Python (unit-tested). UI is a consumer, not the owner of math — unlike today where math is baked into HTML generation.
+**Opinion:** Port calculation functions first as pure modules (unit-tested). UI is a consumer, not the owner of math — unlike today where math is baked into HTML generation.
 
 ---
 
 ## 7. Frontend structure
 
-Reuse the blank styling template tokens. Suggested routes:
+Reuse the blank styling template tokens. Suggested routes under `/one-more-column/`:
 
 | Route | Maps to today’s UI / future |
 |---|---|
-| `/capacity` | Overall / BP / IT / By Person |
+| `/` or `/capacity` | Overall / BP / IT / By Person |
 | `/plan` | Plan Builder (All Up spine) |
 | `/dependencies` | Readiness & dependency board |
 | `/alerts` | Alerts |
@@ -276,29 +347,31 @@ Conflict policy (recommend): **Jira wins on status/comments**; **scenario wins o
 
 ## 9. Security & compliance notes
 
-- Jira API tokens in secrets manager; rotate still every ~30 days unless switched to OAuth.
+- Jira API tokens in Vercel env / secrets manager; rotate still every ~30 days unless switched to OAuth.
 - Audit every publish and policy change (SOX planning evidence hygiene).
-- Encrypt data in transit; restrict DB to private network.
-- Export downloads authenticated; short-lived signed URLs if using object storage.
+- Encrypt data in transit; Neon private networking as available.
+- Export downloads authenticated.
 - Do not embed secrets in frontend bundles.
 - Least-privilege Jira bot user for writeback.
+- Production auth-config always from main origin; child verifies JWTs with same `NEON_AUTH_BASE_URL`.
 
 ---
 
 ## 10. Migration path from Pages → hosted
 
-### Phase H0 — Parallel read (2–4 weeks)
+### Phase H0 — Skeleton + Neon Auth
 
-- Stand up app skeleton: SSO, Postgres, empty UI shell with blank template.
-- Ingest Jira into Postgres (port `sync.py`).
-- Recreate **Capacity** read-only views via API (parity with Pages).
-- Keep Pages live; compare numbers.
+- Scaffold `/one-more-column/` static shell with blank template tokens + `<base href>`.
+- Copy/adapt AMC auth client + `lib/neon-auth.js`; stub `/api/omc-me`.
+- Wire main-site rewrites; verify login identity matches AMC A-Lister.
+- Keep Pages live.
 
 ### Phase H1 — Shared config in DB
 
 - Move deactive users, team membership, weekly/daily capacity into DB admin UI.
 - Non-Jira tasks as manual `plan_items` included in capacity.
 - Assumptions + policy knobs editable by Planners.
+- Ingest Jira into Postgres (port `sync.py`).
 
 ### Phase H2 — Plan Builder
 
@@ -309,15 +382,16 @@ Conflict policy (recommend): **Jira wins on status/comments**; **scenario wins o
 ### Phase H3 — Publish & retire Pages authority
 
 - Jira publish with diff UI.
-- Pages becomes optional public read-only mirror **or** is decommissioned.
+- Pages becomes optional read-only mirror **or** is decommissioned.
 - Excel All Up becomes export/import compatibility, not SoR.
 
 ### Cutover criteria
 
-- Capacity totals match Pages within rounding tolerance for 2 sync cycles.
+- Signed-in `auth.sub` matches AMC A-Lister for the same human.
+- Capacity totals match Pages within rounding tolerance for 2 sync cycles (once L2 ported).
 - At least one planning cycle phase planned primarily in Plan Builder.
 - Publish dry-run reviewed by BP lead.
-- SSO roles assigned for Viewer/Planner/Publisher/Admin.
+- App roles assigned for Viewer/Planner/Publisher/Admin.
 
 ---
 
@@ -326,20 +400,21 @@ Conflict policy (recommend): **Jira wins on status/comments**; **scenario wins o
 ### Keep
 
 - Domain layers L0 / L1 / L2 from the main spec  
-- Design tokens / Mulish / split-grid UX  
+- Design tokens / Mulish / split-grid UX for planning surfaces  
 - Jira as execution system of record  
 - Calculation semantics (35% review, spread rules) until policies override them  
 - Excel export as a download, not the database  
+- Neon Auth + account.html pattern from inaayat.xyz  
 
 ### Change
 
 | Pages world | Hosted world |
 |---|---|
-| Static HTML generation | API + client render |
-| Git as config SoR | DB + admin UI |
+| Static HTML generation | API + client render under `/one-more-column/` |
+| Git as config SoR | Neon DB + admin UI |
 | localStorage teams | Shared resources |
-| GHA = runtime | GHA = CI only (test/build/deploy) |
-| Open Pages URL | Authenticated app |
+| GHA = runtime | GHA = CI; Vercel = runtime |
+| Open Pages URL | Authenticated inaayat.xyz path |
 | “Add alert” → GitHub issue | Alert rules stored & evaluated in-app |
 | Hourly full HTML regen | Incremental data sync + on-demand compute/cache |
 
@@ -349,36 +424,38 @@ Conflict policy (recommend): **Jira wins on status/comments**; **scenario wins o
 
 ```bash
 # illustrative
-docker compose up   # postgres, redis, api, worker
-cp .env.example .env
-# SSO: use mock auth provider in DEV
-make sync-jira      # pulls into local postgres
-make web            # frontend on :5173 → API :8000
+cp .env.example .env   # NEON_AUTH_BASE_URL, DATABASE_URL
+npm i
+vercel dev             # or static server + `vercel dev` for api/
+# open http://localhost:3000/one-more-column/
 ```
 
-Dev mock auth: `DEV_USER=planner@example.com` bypass when `ENV=development` — never in prod.
+For local auth against production Neon Auth, follow the same approach as AMC A-Lister previews. Never commit `.env`.
 
 ---
 
 ## 13. Decision log (recommended defaults)
 
-1. **Postgres over SQLite** for production.  
-2. **SSO required** before Plan Builder ships with real data.  
+1. **Neon Postgres** over SQLite for production.  
+2. **Neon Auth** (same as AMC A-Lister) before Plan Builder ships with real data.  
 3. **Scenarios** before free-edit-on-live-plan (safer for SOX).  
 4. **Publish is explicit** — no silent Jira writeback on every blur.  
 5. **Pages can remain a mirror** for one cycle after H0, then sunset.  
-6. **Same CSS tokens** as blank template / current dashboard — one visual product.
+6. **Same CSS tokens** as blank template / current dashboard — one visual product for planning UI.  
+7. **Production path** `inaayat.xyz/one-more-column/` via main-site rewrites (preferred) or submodule.  
+8. **API prefix** `omc-` to avoid clashing with `alist-` / `pc-`.  
 
 ---
 
 ## 14. Open questions specific to hosting
 
-1. Where will the app be hosted (internal PaaS, VM, Cloud Run, etc.)?  
-2. Which IdP / group claims map to Viewer/Planner/Publisher/Admin?  
-3. Is a public read-only Pages mirror still desired after SSO app exists?  
+1. Shared Neon database with other inaayat.xyz apps vs dedicated DB/branch for OMC tables?  
+2. App-role allowlist seed (who is Admin/Publisher on day one)?  
+3. Is a GitHub Pages mirror still desired after the SSO/Neon app exists?  
 4. Data retention for `jira_issues` raw JSON and audit logs?  
-5. Who owns on-call for sync failures (Enablement vs BP)?  
+5. Add child preview URL (`one-more-column.vercel.app`) to Neon Auth trusted origins?  
+6. Who owns on-call for sync failures (Enablement vs BP) when Jira sync lands?  
 
 ---
 
-*When implementation starts, treat this document as the deployment/runtime architecture and the main specification as the product/domain bible. Keep both in sync when decisions land.*
+*When implementation starts, treat this document as the deployment/runtime architecture, [`BUILD_PLAN.md`](./BUILD_PLAN.md) as sequencing, and the main specification as the product/domain bible. Keep all three in sync when decisions land.*
