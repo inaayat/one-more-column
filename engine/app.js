@@ -1508,20 +1508,11 @@ function render() {
 
   if (route === 'settings') {
     wireSettingsEvents();
-    scrollToSetupStep();
   } else if (route === 'preferences') {
     wirePreferencesEvents();
   } else if (route === 'planner') wirePlannerEvents();
   else if (route === 'capacity') wireCapacityEvents();
   else wireWorkspaceEvents();
-}
-
-function scrollToSetupStep() {
-  const anchor = getSetupProgress(state).nextStep?.anchor;
-  if (!anchor) return;
-  requestAnimationFrame(() => {
-    document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
 }
 
 async function boot() {
