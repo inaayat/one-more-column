@@ -58,6 +58,16 @@ const state = {
   capacityGranularity: 'week',
   drift: null,
   setupDraftPeople: [],
+  setupDraft: {
+    newWorkspaceName: '',
+    newCycleName: '',
+    newCycleStart: '',
+    newCycleEnd: '',
+    newCycleGranularity: 'week',
+    personName: '',
+    personTeam: '',
+    personHours: '32',
+  },
   setupUi: {
     workspaceMode: null,
     cycleMode: null,
@@ -91,6 +101,49 @@ function navigate(route) {
 
 function activeWorkspace() {
   return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
+}
+
+function captureSetupForm() {
+  const draft = state.setupDraft;
+  const el = (id) => document.getElementById(id);
+  if (el('new-workspace-name')) draft.newWorkspaceName = el('new-workspace-name').value;
+  if (el('new-cycle-name')) draft.newCycleName = el('new-cycle-name').value;
+  if (el('new-cycle-start')) draft.newCycleStart = el('new-cycle-start').value;
+  if (el('new-cycle-end')) draft.newCycleEnd = el('new-cycle-end').value;
+  if (el('new-cycle-granularity')) draft.newCycleGranularity = el('new-cycle-granularity').value;
+  if (el('new-resource-name')) draft.personName = el('new-resource-name').value;
+  if (el('new-resource-team')) draft.personTeam = el('new-resource-team').value;
+  if (el('new-resource-hours')) draft.personHours = el('new-resource-hours').value;
+
+  document.querySelectorAll('#setup-team-list .team-person-row[data-id]').forEach((row) => {
+    const resource = state.resources.find((r) => r.id === row.dataset.id);
+    if (!resource) return;
+    resource.name = row.querySelector('[data-field="name"]')?.value ?? resource.name;
+    resource.team = row.querySelector('[data-field="team"]')?.value || null;
+    const hours = row.querySelector('[data-field="weekly_hours"]')?.value;
+    const weeklyHours = Number(hours || resource.profiles?.[0]?.weekly_hours || 32);
+    if (resource.profiles?.length) {
+      resource.profiles[0].weekly_hours = weeklyHours;
+    } else {
+      resource.profiles = [{ weekly_hours: weeklyHours }];
+    }
+  });
+}
+
+function syncSetupDraftField(target) {
+  const draft = state.setupDraft;
+  const map = {
+    'new-workspace-name': 'newWorkspaceName',
+    'new-cycle-name': 'newCycleName',
+    'new-cycle-start': 'newCycleStart',
+    'new-cycle-end': 'newCycleEnd',
+    'new-cycle-granularity': 'newCycleGranularity',
+    'new-resource-name': 'personName',
+    'new-resource-team': 'personTeam',
+    'new-resource-hours': 'personHours',
+  };
+  const key = map[target.id];
+  if (key) draft[key] = target.value;
 }
 
 function renderTeamPersonRows(state, escapeHtml) {
@@ -143,15 +196,15 @@ function renderTeamPersonRows(state, escapeHtml) {
       <div class="team-add-row" id="setup-team-add-row">
         <label class="field team-field">
           <span class="field-label">Who</span>
-          <input id="new-resource-name" class="field-input" placeholder="Name" />
+          <input id="new-resource-name" class="field-input" placeholder="Name" value="${escapeHtml(state.setupDraft.personName)}" />
         </label>
         <label class="field team-field">
           <span class="field-label">Role</span>
-          <input id="new-resource-team" class="field-input" placeholder="e.g. Engineer" />
+          <input id="new-resource-team" class="field-input" placeholder="e.g. Engineer" value="${escapeHtml(state.setupDraft.personTeam)}" />
         </label>
         <label class="field team-field">
           <span class="field-label">Std h/wk</span>
-          <input id="new-resource-hours" class="field-input" type="number" step="0.5" value="32" />
+          <input id="new-resource-hours" class="field-input" type="number" step="0.5" value="${escapeHtml(state.setupDraft.personHours)}" />
         </label>
         <button type="button" class="btn btn-ghost btn-sm team-add-btn" id="add-to-team-list" title="Add person">+</button>
       </div>
@@ -402,19 +455,16 @@ function renderSetupModeToggle(kind, activeMode, hasExisting) {
 
 function collectPersonFromForm() {
   return {
-    name: document.getElementById('new-resource-name')?.value?.trim() || '',
-    team: document.getElementById('new-resource-team')?.value?.trim() || null,
-    weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
+    name: state.setupDraft.personName?.trim() || '',
+    team: state.setupDraft.personTeam?.trim() || null,
+    weekly_hours: Number(state.setupDraft.personHours || 32),
   };
 }
 
 function clearPersonForm() {
-  for (const id of ['new-resource-name', 'new-resource-team']) {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  }
-  const hours = document.getElementById('new-resource-hours');
-  if (hours) hours.value = '32';
+  state.setupDraft.personName = '';
+  state.setupDraft.personTeam = '';
+  state.setupDraft.personHours = '32';
 }
 
 function renderSetupSubmitBar(progress) {
@@ -433,11 +483,12 @@ function renderSetupSubmitBar(progress) {
 }
 
 async function submitSetupPlan() {
+  captureSetupForm();
   const wsMode = getActiveSetupMode('workspace');
   const cycleMode = wsMode === 'new' ? 'new' : getActiveSetupMode('cycle');
-  const newWsName = document.getElementById('new-workspace-name')?.value?.trim();
+  const newWsName = state.setupDraft.newWorkspaceName?.trim();
   const wsSelect = document.getElementById('workspace-select-settings')?.value;
-  const newCycleName = document.getElementById('new-cycle-name')?.value?.trim();
+  const newCycleName = state.setupDraft.newCycleName?.trim();
   const cycleSelect = document.getElementById('cycle-select')?.value;
 
   const people = [...state.setupDraftPeople];
@@ -479,9 +530,9 @@ async function submitSetupPlan() {
 
   let cycleId = null;
   if (cycleMode === 'new') {
-    const startDate = document.getElementById('new-cycle-start')?.value;
-    const endDate = document.getElementById('new-cycle-end')?.value;
-    const trackingGranularity = document.getElementById('new-cycle-granularity')?.value || 'week';
+    const startDate = state.setupDraft.newCycleStart;
+    const endDate = state.setupDraft.newCycleEnd;
+    const trackingGranularity = state.setupDraft.newCycleGranularity || 'week';
     if (!newCycleName) {
       alert('Enter a name for this plan.');
       return;
@@ -528,6 +579,16 @@ async function submitSetupPlan() {
   }
 
   state.setupDraftPeople = [];
+  state.setupDraft = {
+    newWorkspaceName: '',
+    newCycleName: '',
+    newCycleStart: '',
+    newCycleEnd: '',
+    newCycleGranularity: 'week',
+    personName: '',
+    personTeam: '',
+    personHours: '32',
+  };
   clearPersonForm();
   await refreshView();
   navigate('planner');
@@ -594,6 +655,8 @@ function renderSettings() {
   const progress = getSetupProgress(state);
   const wsMode = resolveSetupMode('workspace', state.workspaces.length > 0);
   const cycleMode = resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
+  const draft = state.setupDraft;
+  const gran = draft.newCycleGranularity || 'week';
 
   return renderShell({
     activeNav: 'settings',
@@ -618,7 +681,7 @@ function renderSettings() {
         <div class="setup-mode-panel${wsMode === 'new' ? '' : ' hidden'}">
           <label class="field">
             <span class="field-label">New workspace name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering" />
+            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering" value="${escapeHtml(draft.newWorkspaceName)}" />
           </label>
         </div>
 
@@ -636,22 +699,22 @@ function renderSettings() {
         <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Plan name</span>
-            <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" />
+            <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" value="${escapeHtml(draft.newCycleName)}" />
           </label>
           <label class="field">
             <span class="field-label">Starts</span>
-            <input id="new-cycle-start" class="field-input" type="date" required />
+            <input id="new-cycle-start" class="field-input" type="date" required value="${escapeHtml(draft.newCycleStart)}" />
           </label>
           <label class="field">
             <span class="field-label">Ends</span>
-            <input id="new-cycle-end" class="field-input" type="date" required />
+            <input id="new-cycle-end" class="field-input" type="date" required value="${escapeHtml(draft.newCycleEnd)}" />
           </label>
           <label class="field">
             <span class="field-label">Track work by</span>
             <select id="new-cycle-granularity" class="field-input">
-              <option value="day">Day</option>
-              <option value="week" selected>Week</option>
-              <option value="month">Month</option>
+              <option value="day"${gran === 'day' ? ' selected' : ''}>Day</option>
+              <option value="week"${gran === 'week' ? ' selected' : ''}>Week</option>
+              <option value="month"${gran === 'month' ? ' selected' : ''}>Month</option>
             </select>
           </label>
         </div>
@@ -977,6 +1040,10 @@ function wireWorkspaceEvents() {
 function wireSettingsEvents() {
   wireWorkspaceEvents();
 
+  const setupForm = document.getElementById('setup-plan-form');
+  setupForm?.addEventListener('input', (e) => syncSetupDraftField(e.target));
+  setupForm?.addEventListener('change', (e) => syncSetupDraftField(e.target));
+
   document.getElementById('setup-plan-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -991,6 +1058,7 @@ function wireSettingsEvents() {
     group.querySelectorAll('.view-toggle-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.disabled) return;
+        captureSetupForm();
         state.setupUi = state.setupUi || { workspaceMode: null, cycleMode: null };
         state.setupUi[`${kind}Mode`] = btn.dataset.mode;
         if (kind === 'workspace' && btn.dataset.mode === 'new') {
@@ -1002,6 +1070,7 @@ function wireSettingsEvents() {
   });
 
   document.getElementById('add-to-team-list')?.addEventListener('click', () => {
+    captureSetupForm();
     const person = collectPersonFromForm();
     if (!person.name) return;
     state.setupDraftPeople.push(person);
@@ -1011,6 +1080,7 @@ function wireSettingsEvents() {
 
   document.querySelectorAll('.btn-remove-draft').forEach((btn) => {
     btn.addEventListener('click', () => {
+      captureSetupForm();
       state.setupDraftPeople.splice(Number(btn.dataset.idx), 1);
       render();
     });
@@ -1058,6 +1128,7 @@ function wireSettingsEvents() {
 
   document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      captureSetupForm();
       const row = btn.closest('.team-person-row');
       const id = row?.dataset?.id;
       if (!id) return;
@@ -1491,6 +1562,7 @@ async function refreshView() {
 function render() {
   const root = document.getElementById('app-root');
   const rawRoute = currentRoute();
+  if (rawRoute === 'settings') captureSetupForm();
   const route = resolveRoute(rawRoute, state);
   if (route !== rawRoute) {
     navigate(route);
