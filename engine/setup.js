@@ -17,18 +17,11 @@ export function getSetupProgress(state) {
 
   const steps = [
     {
-      id: 'workspace',
-      label: 'Name your team area',
-      done: hasWorkspace,
+      id: 'name-plan',
+      label: 'Name your plan',
+      done: planningReady,
       route: 'settings',
-      anchor: 'setup-workspace',
-    },
-    {
-      id: 'cycle',
-      label: 'Choose the time period',
-      done: hasCycle,
-      route: 'settings',
-      anchor: 'setup-cycle',
+      anchor: 'setup-plan',
     },
     {
       id: 'plan',

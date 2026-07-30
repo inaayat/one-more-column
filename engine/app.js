@@ -193,14 +193,24 @@ function renderSignInPrompt(auth) {
   `;
 }
 
+function formatCycleDateRange(cycle) {
+  const start = cycle?.start_date ? String(cycle.start_date).slice(0, 10) : '';
+  const end = cycle?.end_date ? String(cycle.end_date).slice(0, 10) : '';
+  if (start && end) return `${start} → ${end}`;
+  if (start) return `from ${start}`;
+  if (end) return `until ${end}`;
+  return '';
+}
+
 function cycleOptions(selectedId) {
   if (!state.cycles.length) {
-    return '<option value="">No period yet — create one in Setup</option>';
+    return '<option value="">No plan yet — name one below</option>';
   }
   return state.cycles
     .map((c) => {
-      const typeLabel = c.cycle_type && c.cycle_type !== 'annual' ? ` (${c.cycle_type})` : '';
-      return `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}${escapeHtml(typeLabel)}</option>`;
+      const range = formatCycleDateRange(c);
+      const suffix = range ? ` (${range})` : '';
+      return `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}${escapeHtml(suffix)}</option>`;
     })
     .join('');
 }
@@ -217,7 +227,7 @@ function renderCapacity() {
   if (!state.activeCycleId) {
     return renderShell({
       activeNav: 'capacity',
-      body: `<section class="panel"><p class="omc-lead">Finish setup first — add a time period on the Setup page.</p></section>`,
+      body: `<section class="panel"><p class="omc-lead">Finish setup first — name a plan on the Setup page.</p></section>`,
     });
   }
 
@@ -314,12 +324,12 @@ function getActiveSetupMode(kind) {
 function renderSetupModeToggle(kind, activeMode, hasExisting) {
   const labels =
     kind === 'workspace'
-      ? { existing: 'Use existing', new: 'Create new' }
-      : { existing: 'Use existing', new: 'Create new' };
+      ? { existing: 'Existing workspace', new: 'New workspace' }
+      : { existing: 'Existing plan', new: 'New plan' };
   const hint =
     kind === 'workspace'
-      ? 'Pick one — you either select a team area that already exists, or create a brand-new one.'
-      : 'Pick one — use a period you already set up, or define a new one.';
+      ? 'Where does this plan live?'
+      : 'Open a plan you already have, or name a new one.';
   return `
     <p class="setup-mode-hint omc-lead">${hint}</p>
     <div class="setup-mode-toggle view-toggle" role="group" data-setup-mode="${kind}">
@@ -354,7 +364,7 @@ function renderSetupSubmitBar(progress) {
     <div class="setup-submit-bar panel">
       <div>
         <h2 class="omc-section-title">Ready?</h2>
-        <p class="omc-lead">Fill in team area, time period, and anyone on the team — then create everything at once. Press <strong>Enter</strong> or click below.</p>
+        <p class="omc-lead">Name your plan (workspace + dates), add anyone on the team, then create everything at once. Press <strong>Enter</strong> or click below.</p>
       </div>
       <button type="submit" class="btn btn-refresh-solid setup-submit-btn">${label}</button>
     </div>
@@ -388,16 +398,18 @@ async function submitSetupPlan() {
   let workspaceId = null;
   if (wsMode === 'new') {
     if (!newWsName) {
-      alert('Enter a name for the new team area.');
+      alert('Enter a name for the new workspace.');
       return;
     }
-    const profile = document.getElementById('new-workspace-profile')?.value?.trim() || 'default';
-    const { workspace } = await workspacesApi.create(state.token, { name: newWsName, profile });
+    const { workspace } = await workspacesApi.create(state.token, {
+      name: newWsName,
+      profile: 'default',
+    });
     workspaceId = workspace.id;
   } else {
     workspaceId = wsSelect || state.activeWorkspaceId;
     if (!workspaceId) {
-      alert('Pick a team area from the list.');
+      alert('Pick a workspace from the list.');
       return;
     }
   }
@@ -406,22 +418,30 @@ async function submitSetupPlan() {
 
   let cycleId = null;
   if (cycleMode === 'new') {
+    const startDate = document.getElementById('new-cycle-start')?.value;
+    const endDate = document.getElementById('new-cycle-end')?.value;
+    const trackingGranularity = document.getElementById('new-cycle-granularity')?.value || 'week';
     if (!newCycleName) {
-      alert('Enter a name for the new planning period.');
+      alert('Enter a name for this plan.');
+      return;
+    }
+    if (!startDate || !endDate) {
+      alert('Enter start and end dates for this plan.');
       return;
     }
     const result = await cyclesApi.create(state.token, workspaceId, {
       name: newCycleName,
-      cycle_type: document.getElementById('new-cycle-type')?.value || 'annual',
-      start_date: document.getElementById('new-cycle-start')?.value || null,
-      end_date: document.getElementById('new-cycle-end')?.value || null,
+      cycle_type: 'custom',
+      start_date: startDate,
+      end_date: endDate,
+      policy: { tracking_granularity: trackingGranularity },
     });
     cycleId = result.cycle.id;
     state.activeScenarioId = result.default_scenario_id;
   } else {
     cycleId = cycleSelect || state.activeCycleId;
     if (!cycleId) {
-      alert('Pick a planning period from the list.');
+      alert('Pick an existing plan from the list.');
       return;
     }
   }
@@ -464,7 +484,7 @@ function renderPeopleDetailsPanel(state, escapeHtml) {
     return `
       <section class="panel">
         <h2 class="omc-section-title">People details</h2>
-        <p class="omc-lead">Add your team in step 3 first — then you can layer on PTO and other details here.</p>
+        <p class="omc-lead">Add your team in step 2 first — then you can layer on PTO and other details here.</p>
       </section>`;
   }
 
@@ -545,83 +565,75 @@ function renderSettings() {
       <form id="setup-plan-form" class="setup-plan-form">
       <div class="setup-primary">
       ${renderSetupProgressBanner(state)}
-      <div class="setup-steps-row">
-      <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}">
+      <div class="setup-steps-row setup-steps-row-2">
+      <section id="setup-plan" class="${setupSectionClass(progress, 'setup-plan')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">1. Team area</h2>
+        <h2 class="omc-section-title">1. Name your plan</h2>
+        <p class="omc-lead setup-section-lead">Pick a workspace, then name this plan — start and end dates, and how you want to track work.</p>
+
+        <h3 class="setup-subheading">Workspace</h3>
         ${renderSetupModeToggle('workspace', wsMode, state.workspaces.length > 0)}
         <div class="setup-mode-panel${wsMode === 'existing' ? '' : ' hidden'}">
           <label class="field">
-            <span class="field-label">Which team area?</span>
+            <span class="field-label">Which workspace?</span>
             <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
           </label>
         </div>
         <div class="setup-mode-panel${wsMode === 'new' ? '' : ' hidden'}">
-          <div class="form-grid setup-form-grid">
           <label class="field">
-            <span class="field-label">New team area name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering team" />
+            <span class="field-label">New workspace name</span>
+            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering" />
           </label>
-          <label class="field">
-            <span class="field-label">Type (optional)</span>
-            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" />
-          </label>
-          </div>
         </div>
-        </div>
-        ${wsMode === 'existing' && state.workspaces.length > 1 && state.activeWorkspaceId ? `
-        <div class="setup-section-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete this team area</button>
-        </div>` : ''}
-      </section>
 
-      <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}">
-        <div class="setup-section-body">
-        <h2 class="omc-section-title">2. Time period</h2>
+        <h3 class="setup-subheading">Plan</h3>
         ${wsMode === 'new'
-          ? '<p class="omc-lead setup-section-lead">New team area — name your first planning period below.</p>'
+          ? '<p class="omc-lead setup-section-lead">New workspace — name your first plan below.</p>'
           : renderSetupModeToggle('cycle', cycleMode, state.cycles.length > 0)}
         <div class="setup-mode-panel${cycleMode === 'existing' && wsMode !== 'new' ? '' : ' hidden'}">
           <label class="field">
-            <span class="field-label">Which period?</span>
+            <span class="field-label">Which plan?</span>
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           </label>
         </div>
         <div class="setup-mode-panel${cycleMode === 'new' || wsMode === 'new' ? '' : ' hidden'}">
         <div class="form-grid setup-form-grid">
           <label class="field">
-            <span class="field-label">Period name</span>
+            <span class="field-label">Plan name</span>
             <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" />
           </label>
           <label class="field">
-            <span class="field-label">Kind</span>
-            <select id="new-cycle-type" class="field-input">
-              <option value="annual">Full year</option>
-              <option value="quarter">Quarter</option>
-              <option value="sprint">Sprint (short)</option>
-              <option value="custom">Other</option>
-            </select>
-          </label>
-          <label class="field">
             <span class="field-label">Starts</span>
-            <input id="new-cycle-start" class="field-input" type="date" />
+            <input id="new-cycle-start" class="field-input" type="date" required />
           </label>
           <label class="field">
             <span class="field-label">Ends</span>
-            <input id="new-cycle-end" class="field-input" type="date" />
+            <input id="new-cycle-end" class="field-input" type="date" required />
+          </label>
+          <label class="field">
+            <span class="field-label">Track work by</span>
+            <select id="new-cycle-granularity" class="field-input">
+              <option value="day">Day</option>
+              <option value="week" selected>Week</option>
+              <option value="month">Month</option>
+            </select>
           </label>
         </div>
         </div>
         </div>
-        ${cycleMode === 'existing' && state.activeCycleId ? `
         <div class="setup-section-actions">
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete this period</button>
-        </div>` : ''}
+        ${wsMode === 'existing' && state.workspaces.length > 1 && state.activeWorkspaceId ? `
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete workspace</button>
+        ` : ''}
+        ${cycleMode === 'existing' && wsMode !== 'new' && state.activeCycleId ? `
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete plan</button>
+        ` : ''}
+        </div>
       </section>
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">3. Team <span class="setup-optional-tag">optional</span></h2>
+        <h2 class="omc-section-title">2. Team <span class="setup-optional-tag">optional</span></h2>
         <p class="omc-lead setup-section-lead">One row per person — name, role, standard hours. Add PTO later under People details.</p>
         <div class="setup-table-scroll setup-people-table">
         <table class="data-table setup-team-table" id="setup-team-table">
@@ -789,6 +801,12 @@ async function loadCoreData() {
   if (state.activeCycleId) {
     const { policy } = await policyApi.get(token, state.activeCycleId);
     state.policy = policy;
+    const tracking = policy?.config?.tracking_granularity;
+    if (tracking === 'month' || tracking === 'week') {
+      state.capacityGranularity = tracking;
+    } else if (tracking === 'day') {
+      state.capacityGranularity = 'week';
+    }
     await loadScenarioData();
   }
 }
@@ -973,7 +991,7 @@ function wireSettingsEvents() {
 
   document.getElementById('delete-workspace')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId || state.workspaces.length <= 1) return;
-    const name = activeWorkspace()?.name || 'this team area';
+    const name = activeWorkspace()?.name || 'this workspace';
     if (!confirmDelete(name)) return;
     await workspacesApi.delete(state.token, state.activeWorkspaceId);
     state.activeWorkspaceId = null;
@@ -986,7 +1004,7 @@ function wireSettingsEvents() {
   document.getElementById('delete-cycle')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId || !state.activeCycleId) return;
     const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
-    if (!confirmDelete(cycle?.name || 'this period')) return;
+    if (!confirmDelete(cycle?.name || 'this plan')) return;
     await cyclesApi.delete(state.token, state.activeWorkspaceId, state.activeCycleId);
     state.activeCycleId = null;
     state.activeScenarioId = null;

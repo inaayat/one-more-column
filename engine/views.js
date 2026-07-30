@@ -31,10 +31,10 @@ export function renderSetupProgressBanner(state) {
         ? 'You are almost done'
         : 'Almost there';
   const intro = !progress.planningReady
-    ? '<p class="omc-lead">Each step is either <strong>Use existing</strong> or <strong>Create new</strong> — not both. Fill in what shows, then click <strong>Create the plan</strong>.</p>'
+    ? '<p class="omc-lead">Name your plan in step 1 — workspace, dates, and how you track work. Then click <strong>Create the plan</strong>.</p>'
     : progress.nextStep?.id === 'plan'
       ? '<p class="omc-lead">Setup basics are done. Open <strong>Planner</strong> and add rows for what you are actually trying to get done — deliverables, reviews, meetings, anything with hours and due dates.</p>'
-      : '<p class="omc-lead">Add your work in <strong>Planner</strong>, add people in step 3 if you have not yet, then check <strong>Capacity</strong>.</p>';
+      : '<p class="omc-lead">Add your work in <strong>Planner</strong>, add people in step 2 if you have not yet, then check <strong>Capacity</strong>.</p>';
   const lead = progress.nextStep
     ? `<p class="setup-progress-lead"><strong>Do this next:</strong> ${progress.nextStep.label}</p>`
     : '';
@@ -68,7 +68,7 @@ export function renderPlanningCta(state) {
       ${hasRows
         ? `<p class="omc-lead"><span class="badge badge-ok">${state.planItems.length} row(s) in Planner</span> — <a href="#/planner">keep adding or editing</a>.</p>`
         : `<div class="btn-row"><a class="btn btn-refresh-solid" href="#/planner">Open Planner →</a></div>`}
-      ${!progress.teamReady ? '<p class="omc-lead setup-planning-note">You can plan before adding your team. Add people in step 3 when you are ready to check capacity.</p>' : ''}
+      ${!progress.teamReady ? '<p class="omc-lead setup-planning-note">You can plan before adding your team. Add people in step 2 when you are ready to check capacity.</p>' : ''}
     </section>
   `;
 }
@@ -117,15 +117,15 @@ export function renderHomeView({ state, escapeHtml }) {
 
     <section class="panel home-guide">
       <h2 class="omc-section-title">How to use this tool</h2>
-      <p class="omc-lead">Name your team area and time period in <strong>Setup</strong>, then list your actual work in <strong>Planner</strong>. Add people when you are ready to check <strong>Capacity</strong>.</p>
+      <p class="omc-lead">Name your plan in <strong>Setup</strong>, then list your actual work in <strong>Planner</strong>. Add people when you are ready to check <strong>Capacity</strong>.</p>
 
       <ol class="guide-steps">
-        <li class="guide-step${progress.nextStep?.id === 'workspace' || progress.nextStep?.id === 'cycle' ? ' guide-step-current' : ''}">
+        <li class="guide-step${progress.nextStep?.id === 'name-plan' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
             <span class="guide-step-num">1</span>
-            <h3>Name your area &amp; time period</h3>
+            <h3>Name your plan</h3>
           </div>
-          <p>Start on <a href="#/settings">Setup</a>. Pick a <strong>team area</strong> and the <strong>time period</strong> you are planning for.</p>
+          <p>Start on <a href="#/settings">Setup</a>. Pick a <strong>workspace</strong> (existing or new), then name the plan with <strong>start</strong> and <strong>end</strong> dates and choose how to <strong>track work</strong> — by day, week, or month.</p>
         </li>
 
         <li class="guide-step${progress.nextStep?.id === 'plan' ? ' guide-step-current' : ''}">
