@@ -18,6 +18,7 @@ import {
 } from './api.js';
 import {
   scenarioOptions,
+  renderHomeView,
   renderPlanView,
   renderDependenciesView,
   renderAlertsView,
@@ -186,31 +187,9 @@ function cycleOptions(selectedId) {
 }
 
 function renderHome() {
-  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
-  const workspace = activeWorkspace();
   return renderShell({
     activeNav: 'home',
-    body: `
-      <div class="token-banner valid">
-        <span aria-hidden="true">✓</span>
-        <div><strong>C1 + H3 + C4 ready.</strong> Capacity bands, assumptions, PTO overlay, alerts, and CSV export are live.</div>
-      </div>
-      <section class="panel">
-        <h1 class="omc-title">Welcome back</h1>
-        <p class="omc-lead">Each workspace has its own people pool and planning cycles. Switch workspaces in the header.</p>
-        <dl class="omc-identity">
-          <div><dt>Workspace</dt><dd>${escapeHtml(workspace?.name || 'None — create one in Settings')}</dd></div>
-          <div><dt>Active cycle</dt><dd>${escapeHtml(cycle?.name || 'None — create one in Settings')}</dd></div>
-          <div><dt>Resources</dt><dd>${state.resources.length}</dd></div>
-          <div><dt>Teams</dt><dd>${state.teams.length ? escapeHtml(state.teams.join(', ')) : '—'}</dd></div>
-          <div><dt>Manual tasks</dt><dd>${state.planItems.length}</dd></div>
-        </dl>
-        <div class="btn-row" style="margin-top:16px">
-          <a class="btn btn-refresh-solid" href="#/capacity">View capacity</a>
-          <a class="btn btn-ghost" href="#/settings">Manage settings</a>
-        </div>
-      </section>
-    `,
+    body: renderHomeView({ state, escapeHtml }),
   });
 }
 

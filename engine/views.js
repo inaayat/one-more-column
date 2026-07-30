@@ -1,5 +1,154 @@
 /** Plan Builder + Dependencies view helpers (H2 / C2). */
 
+export function renderHomeView({ state, escapeHtml }) {
+  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
+  const workspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
+  const hasWorkspace = Boolean(workspace);
+  const hasCycle = Boolean(cycle);
+  const hasResources = state.resources.length > 0;
+  const hasPlanItems = state.planItems.length > 0;
+  const setupComplete = hasWorkspace && hasCycle && hasResources;
+
+  const setupStatus = setupComplete
+    ? '<span class="badge badge-ok">Ready to plan</span>'
+    : '<span class="badge badge-warn">Finish setup first</span>';
+
+  const nextStep = !hasWorkspace
+    ? { href: '#/settings', label: 'Create a workspace in Settings' }
+    : !hasCycle
+      ? { href: '#/settings', label: 'Add a planning cycle' }
+      : !hasResources
+        ? { href: '#/settings', label: 'Add your team members' }
+        : !hasPlanItems
+          ? { href: '#/plan', label: 'Add your first plan items' }
+          : { href: '#/capacity', label: 'View your capacity grid' };
+
+  return `
+    <section class="panel home-hero">
+      <p class="home-eyebrow">Getting started</p>
+      <h1 class="omc-title">Plan your work in one place</h1>
+      <p class="omc-lead home-intro">
+        One More Column helps you list what needs to get done, spread hours across weeks,
+        and see who still has room — without juggling another spreadsheet.
+      </p>
+      <div class="home-status">
+        ${setupStatus}
+        <span class="home-status-detail">
+          ${escapeHtml(workspace?.name || 'No workspace')}
+          ${hasCycle ? ` · ${escapeHtml(cycle.name)}` : ''}
+        </span>
+      </div>
+      <div class="btn-row home-cta">
+        <a class="btn btn-refresh-solid" href="${nextStep.href}">${escapeHtml(nextStep.label)}</a>
+        <a class="btn btn-ghost" href="#/plan">Open Plan</a>
+      </div>
+    </section>
+
+    <section class="panel home-guide">
+      <h2 class="omc-section-title">How to use this tool</h2>
+      <p class="omc-lead">Follow these steps once per workspace. After that, you mostly live on <strong>Plan</strong> and <strong>Capacity</strong>.</p>
+
+      <ol class="guide-steps">
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">1</span>
+            <h3>Set up your workspace</h3>
+          </div>
+          <p>Go to <a href="#/settings">Settings</a>. A <strong>workspace</strong> is your team's own pool of people and plans — separate from other teams.</p>
+          <ul class="guide-tips">
+            <li>Create a workspace (for example, <em>Engineering</em> or <em>Design</em>).</li>
+            <li>Add a <strong>planning cycle</strong> for the time period you're planning (quarter, sprint, or year).</li>
+          </ul>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">2</span>
+            <h3>Add your people</h3>
+          </div>
+          <p>Still in <a href="#/settings">Settings</a>, add everyone who will carry work in this workspace.</p>
+          <ul class="guide-tips">
+            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours).</li>
+            <li>Optional: add <strong>time off</strong> so capacity reflects PTO and holidays.</li>
+            <li>Assign a <strong>team</strong> name if you want to filter the capacity view later.</li>
+          </ul>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">3</span>
+            <h3>List the work</h3>
+          </div>
+          <p>Open <a href="#/plan">Plan</a> and add tasks for the active cycle and scenario.</p>
+          <ul class="guide-tips">
+            <li><strong>Title</strong> — what needs to be done.</li>
+            <li><strong>Work hours</strong> — effort to complete it. Review hours can be entered or derived from your policy.</li>
+            <li><strong>Due week</strong> — when the work should land. Hours count toward that week on the capacity grid.</li>
+            <li>Already have a spreadsheet? Paste CSV on the Plan page or use <strong>Export CSV</strong> to download what you have.</li>
+          </ul>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">4</span>
+            <h3>Model blockers (optional)</h3>
+          </div>
+          <p>If something cannot start until something else is done, use <a href="#/dependencies">Dependencies</a>.</p>
+          <ul class="guide-tips">
+            <li>Add a gate (for example, <em>Prerequisite complete</em>) on the plan item it blocks.</li>
+            <li>Mark gates <strong>met</strong> when they're done — readiness dates update automatically.</li>
+          </ul>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">5</span>
+            <h3>Check capacity</h3>
+          </div>
+          <p>Open <a href="#/capacity">Capacity</a> to see hours per person, per week.</p>
+          <ul class="guide-tips">
+            <li><span class="legend-dot ok"></span> <strong>Green</strong> — room left.</li>
+            <li><span class="legend-dot warn"></span> <strong>Yellow</strong> — getting tight.</li>
+            <li><span class="legend-dot bad"></span> <strong>Red</strong> — overloaded.</li>
+            <li>Use <strong>team tabs</strong> to focus on one group. Document cycle assumptions at the top of the page.</li>
+          </ul>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">6</span>
+            <h3>Watch for problems</h3>
+          </div>
+          <p><a href="#/alerts">Alerts</a> surfaces overloads, due dates coming up soon, and readiness gaps — no external tools required.</p>
+          <p class="guide-note">Use <strong>scenarios</strong> on the Plan page to try a "what if" version without overwriting your baseline.</p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="panel home-quickref">
+      <h2 class="omc-section-title">Quick reference</h2>
+      <div class="quickref-grid">
+        <div class="quickref-card">
+          <h3>Switch workspace</h3>
+          <p>Use the dropdown in the top-right header. Each workspace keeps its own people and cycles.</p>
+        </div>
+        <div class="quickref-card">
+          <h3>Switch cycle or scenario</h3>
+          <p>Pick them on Plan, Capacity, or Dependencies. Your choice stays until you change it.</p>
+        </div>
+        <div class="quickref-card">
+          <h3>Import vs export</h3>
+          <p><strong>Import</strong> adds rows from CSV. <strong>Export</strong> downloads your current plan or capacity. <strong>Check drift</strong> compares today to your last import.</p>
+        </div>
+        <div class="quickref-card">
+          <h3>Where data lives</h3>
+          <p>Everything you enter is saved in the app. There is no live sync with Jira or other tools in this version.</p>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
 export function renderAlertsView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
   const groups = { high: [], medium: [], low: [] };
   for (const alert of state.alerts || []) {
