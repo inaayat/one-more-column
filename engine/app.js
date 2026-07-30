@@ -108,7 +108,7 @@ function workspaceOptions(selectedId) {
     .join('');
 }
 
-function renderShell({ body, activeNav = 'home' }) {
+function renderShell({ body, activeNav = 'planner' }) {
   const items = navItems(state);
   const nav = items
     .map((item) => {
@@ -127,6 +127,9 @@ function renderShell({ body, activeNav = 'home' }) {
   const user = state.me?.user || state.auth?.user || {};
   const displayName = user.name || user.email || 'Signed in';
   const avatar = initials(user.name, user.email);
+
+  const contentClass =
+    activeNav === 'settings' ? 'content content-centered' : 'content content-wide';
 
   return `
     <header class="app-header">
@@ -156,7 +159,7 @@ function renderShell({ body, activeNav = 'home' }) {
       </div>
     </header>
     <main class="main">
-      <div class="content content-wide">${body}</div>
+      <div class="${contentClass}">${body}</div>
     </main>
   `;
 }
@@ -168,14 +171,18 @@ function renderSignInPrompt(auth) {
     : '';
 
   return `
-    ${reauthNote}
-    <section class="panel">
-      <h1 class="omc-title">One More Column</h1>
-      <p class="omc-lead">Sign in with the same account you use for AMC A-Lister.</p>
-      <p style="margin-top:16px">
-        <a class="btn btn-refresh-solid" href="${loginHref}">Sign in</a>
-      </p>
-    </section>
+    <main class="main">
+      <div class="content content-centered">
+        ${reauthNote}
+        <section class="panel">
+          <h1 class="omc-title">One More Column</h1>
+          <p class="omc-lead">Sign in with the same account you use for AMC A-Lister.</p>
+          <p style="margin-top:16px">
+            <a class="btn btn-refresh-solid" href="${loginHref}">Sign in</a>
+          </p>
+        </section>
+      </div>
+    </main>
   `;
 }
 
