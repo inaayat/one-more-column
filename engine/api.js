@@ -17,17 +17,28 @@ export async function apiFetch(path, { method = 'GET', body, token } = {}) {
   return data;
 }
 
-function withToken(token) {
-  return (path, opts = {}) => apiFetch(path, { ...opts, token });
+function workspaceQs(workspaceId) {
+  return `workspace=${encodeURIComponent(workspaceId)}`;
 }
 
 export const meApi = {
   get: (token) => apiFetch('/api/omc-me', { token }),
 };
 
+export const workspacesApi = {
+  list: (token) => apiFetch('/api/omc-workspaces', { token }),
+  create: (token, body) => apiFetch('/api/omc-workspaces', { method: 'POST', body, token }),
+};
+
 export const cyclesApi = {
-  list: (token) => apiFetch('/api/omc-cycles', { token }),
-  create: (token, body) => apiFetch('/api/omc-cycles', { method: 'POST', body, token }),
+  list: (token, workspaceId) =>
+    apiFetch(`/api/omc-cycles?${workspaceQs(workspaceId)}`, { token }),
+  create: (token, workspaceId, body) =>
+    apiFetch(`/api/omc-cycles?${workspaceQs(workspaceId)}`, {
+      method: 'POST',
+      body: { ...body, workspace_id: workspaceId },
+      token,
+    }),
 };
 
 export const policyApi = {
@@ -41,16 +52,24 @@ export const policyApi = {
 };
 
 export const resourcesApi = {
-  list: (token, { team, active } = {}) => {
-    const params = new URLSearchParams();
+  list: (token, workspaceId, { team, active } = {}) => {
+    const params = new URLSearchParams({ workspace: workspaceId });
     if (team) params.set('team', team);
     if (active === false) params.set('active', 'false');
-    const qs = params.toString();
-    return apiFetch(`/api/omc-resources${qs ? `?${qs}` : ''}`, { token });
+    return apiFetch(`/api/omc-resources?${params}`, { token });
   },
-  create: (token, body) => apiFetch('/api/omc-resources', { method: 'POST', body, token }),
-  patch: (token, resources) =>
-    apiFetch('/api/omc-resources', { method: 'PATCH', body: { resources }, token }),
+  create: (token, workspaceId, body) =>
+    apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}`, {
+      method: 'POST',
+      body: { ...body, workspace_id: workspaceId },
+      token,
+    }),
+  patch: (token, workspaceId, resources) =>
+    apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}`, {
+      method: 'PATCH',
+      body: { resources },
+      token,
+    }),
 };
 
 export const planItemsApi = {
@@ -74,5 +93,3 @@ export const capacityApi = {
     return apiFetch(`/api/omc-capacity?${params}`, { token });
   },
 };
-
-export { withToken };

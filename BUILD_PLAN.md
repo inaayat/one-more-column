@@ -28,7 +28,9 @@
 flowchart LR
   P0[Phase 0 Artifacts] --> H0[H0 Skeleton + Neon Auth]
   H0 --> H1[H1 Shared config DB]
-  H1 --> C1[C1 Capacity harden]
+  H1 --> H15[H1.5 Workspaces]
+  H15 --> H2[H2 Plan Builder]
+  H2 --> C1[C1 Capacity harden]
   C1 --> C2[C2 Dependencies]
   C2 --> C3[C3 Plan Builder + import UI]
   C3 --> C4[C4 Export optional]
@@ -357,6 +359,7 @@ Optional: `<a href="/one-more-column/">One More Column</a>` on inaayat.xyz index
 |---|---|---|
 | **H0 — Skeleton + auth** | Static shell under `/one-more-column/` with blank template tokens; Neon Auth login/logout; stub `/api/omc-me`; main-site rewrites live | Signed-in user sees same identity as on `/amc-a-lister/` |
 | **H1 — Shared config in DB** | Resources, teams, policies, manual `plan_items` in Neon Postgres; capacity read API | localStorage no longer SoR for teams |
+| **H1.5 — Workspaces** | Top-level isolation: workspace-scoped resources + cycles; workspace switcher; `cycle_type` (annual/quarter/sprint); FY→FY is new cycle in same workspace | Multiple team plans with separate resource pools; one account accesses all workspaces |
 | **H2 — Plan Builder on Postgres** | Direct entry + optional XLSX/CSV upload → `plan_items`; engines; scenario toggle | One cycle planned in-app without external pull |
 | **H3 — Export + polish** | XLSX/CSV export; in-app alerts; app roles | Export + overload alerts work from Postgres-only data |
 
@@ -385,7 +388,9 @@ Corporate Okta / ECS from early Hosted Arch drafts is **out of scope** for inaay
 | `services.import` / `export` | XLSX/CSV parse + download |
 
 **API surface — v1 (`omc-` prefixed):**  
-`omc-me`, `omc-cycles`, `omc-policy`, `omc-plan-items`, `omc-dependencies`, `omc-capacity`, `omc-resources`, `omc-alerts`, `omc-import`, `omc-export`
+`omc-me`, `omc-workspaces`, `omc-cycles`, `omc-policy`, `omc-plan-items`, `omc-dependencies`, `omc-capacity`, `omc-resources`, `omc-alerts`, `omc-import`, `omc-export`
+
+**Workspace scoping:** `omc-cycles` and `omc-resources` require `?workspace=<id>`. Resources belong to a workspace and persist across cycles within it (editable cycle-over-cycle, not required). Capacity derives workspace from the selected cycle.
 
 **Deferred to P2:** `omc-sync`, `omc-publish` (and any live provider routes)
 

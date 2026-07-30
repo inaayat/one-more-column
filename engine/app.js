@@ -1,6 +1,7 @@
 import { initAuth, wireAuthLink, refreshToken } from './auth.js';
 import {
   meApi,
+  workspacesApi,
   cyclesApi,
   policyApi,
   resourcesApi,
@@ -9,11 +10,14 @@ import {
 } from './api.js';
 
 const APP_PATH = '/one-more-column/';
+const WORKSPACE_STORAGE_KEY = 'omc_active_workspace_id';
 
 const state = {
   auth: null,
   me: null,
   token: null,
+  workspaces: [],
+  activeWorkspaceId: null,
   cycles: [],
   activeCycleId: null,
   resources: [],
@@ -48,6 +52,28 @@ function navigate(route) {
   location.hash = `#/${route}`;
 }
 
+function activeWorkspace() {
+  return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
+}
+
+function persistActiveWorkspace() {
+  if (state.activeWorkspaceId) {
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, state.activeWorkspaceId);
+  }
+}
+
+function workspaceOptions(selectedId) {
+  if (!state.workspaces.length) {
+    return '<option value="">No workspaces</option>';
+  }
+  return state.workspaces
+    .map(
+      (w) =>
+        `<option value="${escapeHtml(w.id)}"${w.id === selectedId ? ' selected' : ''}>${escapeHtml(w.name)}</option>`,
+    )
+    .join('');
+}
+
 function renderShell({ body, activeNav = 'home' }) {
   const navItems = [
     { id: 'home', label: 'Home' },
@@ -77,6 +103,12 @@ function renderShell({ body, activeNav = 'home' }) {
         </div>
         <nav class="header-nav" aria-label="Main">${nav}</nav>
         <div class="header-actions">
+          <label class="workspace-switcher">
+            <span class="sr-only">Workspace</span>
+            <select id="workspace-select" class="field-input field-sm workspace-select" title="Switch workspace">
+              ${workspaceOptions(state.activeWorkspaceId)}
+            </select>
+          </label>
           <a href="/" class="btn btn-ghost btn-sm">← inaayat.xyz</a>
           <span class="auth-chip">
             <span class="auth-avatar">${escapeHtml(avatar)}</span>
@@ -115,26 +147,28 @@ function cycleOptions(selectedId) {
     return '<option value="">No cycles yet</option>';
   }
   return state.cycles
-    .map(
-      (c) =>
-        `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
-    )
+    .map((c) => {
+      const typeLabel = c.cycle_type && c.cycle_type !== 'annual' ? ` (${c.cycle_type})` : '';
+      return `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}${escapeHtml(typeLabel)}</option>`;
+    })
     .join('');
 }
 
 function renderHome() {
   const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
+  const workspace = activeWorkspace();
   return renderShell({
     activeNav: 'home',
     body: `
       <div class="token-banner valid">
         <span aria-hidden="true">✓</span>
-        <div><strong>H1 ready.</strong> Resources, policies, and manual plan items live in Postgres.</div>
+        <div><strong>H1.5 ready.</strong> Workspaces isolate teams, resources, and cycles. FY26 → FY27 is a new cycle in the same workspace.</div>
       </div>
       <section class="panel">
         <h1 class="omc-title">Welcome back</h1>
-        <p class="omc-lead">Shared configuration is stored in Neon Postgres — team membership is no longer local-only.</p>
+        <p class="omc-lead">Each workspace has its own people pool and planning cycles. Switch workspaces in the header.</p>
         <dl class="omc-identity">
+          <div><dt>Workspace</dt><dd>${escapeHtml(workspace?.name || 'None — create one in Settings')}</dd></div>
           <div><dt>Active cycle</dt><dd>${escapeHtml(cycle?.name || 'None — create one in Settings')}</dd></div>
           <div><dt>Resources</dt><dd>${state.resources.length}</dd></div>
           <div><dt>Teams</dt><dd>${state.teams.length ? escapeHtml(state.teams.join(', ')) : '—'}</dd></div>
@@ -251,6 +285,28 @@ function renderSettings() {
     activeNav: 'settings',
     body: `
       <section class="panel" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Workspace</h2>
+        <p class="omc-lead" style="margin-bottom:12px">Workspaces isolate resource pools and cycles. People persist across cycles within a workspace and can be edited anytime.</p>
+        <div class="form-grid">
+          <label class="field">
+            <span class="field-label">Active workspace</span>
+            <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
+          </label>
+          <label class="field">
+            <span class="field-label">New workspace name</span>
+            <input id="new-workspace-name" class="field-input" placeholder="BP SOX" />
+          </label>
+          <label class="field">
+            <span class="field-label">Profile</span>
+            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create workspace</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-bottom:16px">
         <h2 class="omc-section-title">Planning cycle</h2>
         <div class="form-grid">
           <label class="field">
@@ -260,6 +316,23 @@ function renderSettings() {
           <label class="field">
             <span class="field-label">New cycle name</span>
             <input id="new-cycle-name" class="field-input" placeholder="FY26 SOX" />
+          </label>
+          <label class="field">
+            <span class="field-label">Cycle type</span>
+            <select id="new-cycle-type" class="field-input">
+              <option value="annual">Annual</option>
+              <option value="quarter">Quarter</option>
+              <option value="sprint">Sprint</option>
+              <option value="custom">Custom</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Start date</span>
+            <input id="new-cycle-start" class="field-input" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">End date</span>
+            <input id="new-cycle-end" class="field-input" type="date" />
           </label>
           <div class="field" style="align-self:end">
             <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create cycle</button>
@@ -355,16 +428,45 @@ function formatWeekLabel(isoDate) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
+async function loadWorkspaces() {
+  const { workspaces } = await workspacesApi.list(state.token);
+  state.workspaces = workspaces;
+
+  const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  if (stored && workspaces.some((w) => w.id === stored)) {
+    state.activeWorkspaceId = stored;
+  } else if (workspaces.length) {
+    state.activeWorkspaceId = workspaces[0].id;
+    persistActiveWorkspace();
+  } else {
+    state.activeWorkspaceId = null;
+  }
+}
+
 async function loadCoreData() {
   const token = state.token;
+  if (!state.activeWorkspaceId) {
+    state.cycles = [];
+    state.resources = [];
+    state.teams = [];
+    state.policy = null;
+    state.planItems = [];
+    state.activeCycleId = null;
+    return;
+  }
+
   const [{ cycles }, { resources, teams }] = await Promise.all([
-    cyclesApi.list(token),
-    resourcesApi.list(token),
+    cyclesApi.list(token, state.activeWorkspaceId),
+    resourcesApi.list(token, state.activeWorkspaceId),
   ]);
   state.cycles = cycles;
   state.resources = resources;
   state.teams = teams;
 
+  if (state.activeCycleId && !cycles.some((c) => c.id === state.activeCycleId)) {
+    state.activeCycleId = null;
+    state.defaultScenarioId = null;
+  }
   if (!state.activeCycleId && cycles.length) {
     state.activeCycleId = cycles[0].id;
   }
@@ -392,11 +494,45 @@ async function loadCapacity(mode = 'due') {
   });
 }
 
+function wireWorkspaceEvents() {
+  const onSwitch = async (workspaceId) => {
+    if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
+    state.activeWorkspaceId = workspaceId;
+    state.activeCycleId = null;
+    state.defaultScenarioId = null;
+    state.capacity = null;
+    persistActiveWorkspace();
+    await refreshView();
+  };
+
+  document.getElementById('workspace-select')?.addEventListener('change', (e) => onSwitch(e.target.value));
+  document.getElementById('workspace-select-settings')?.addEventListener('change', (e) => onSwitch(e.target.value));
+
+  document.getElementById('create-workspace')?.addEventListener('click', async () => {
+    const name = document.getElementById('new-workspace-name')?.value?.trim();
+    if (!name) return;
+    const profile = document.getElementById('new-workspace-profile')?.value?.trim() || 'default';
+    const { workspace } = await workspacesApi.create(state.token, { name, profile });
+    state.activeWorkspaceId = workspace.id;
+    state.activeCycleId = null;
+    persistActiveWorkspace();
+    await refreshView();
+  });
+}
+
 function wireSettingsEvents() {
+  wireWorkspaceEvents();
+
   document.getElementById('create-cycle')?.addEventListener('click', async () => {
+    if (!state.activeWorkspaceId) return;
     const name = document.getElementById('new-cycle-name')?.value?.trim();
     if (!name) return;
-    const result = await cyclesApi.create(state.token, { name });
+    const result = await cyclesApi.create(state.token, state.activeWorkspaceId, {
+      name,
+      cycle_type: document.getElementById('new-cycle-type')?.value || 'annual',
+      start_date: document.getElementById('new-cycle-start')?.value || null,
+      end_date: document.getElementById('new-cycle-end')?.value || null,
+    });
     state.activeCycleId = result.cycle.id;
     state.defaultScenarioId = result.default_scenario_id;
     await refreshView();
@@ -424,7 +560,7 @@ function wireSettingsEvents() {
   document.getElementById('add-resource')?.addEventListener('click', async () => {
     const name = document.getElementById('new-resource-name')?.value?.trim();
     if (!name) return;
-    await resourcesApi.create(state.token, {
+    await resourcesApi.create(state.token, state.activeWorkspaceId, {
       name,
       team: document.getElementById('new-resource-team')?.value?.trim() || null,
       weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
@@ -441,7 +577,7 @@ function wireSettingsEvents() {
       active: row.querySelector('[data-field="active"]')?.checked,
       weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
     }));
-    await resourcesApi.patch(state.token, resources);
+    await resourcesApi.patch(state.token, state.activeWorkspaceId, resources);
     await refreshView();
   });
 
@@ -470,6 +606,8 @@ function wireSettingsEvents() {
 }
 
 function wireCapacityEvents() {
+  wireWorkspaceEvents();
+
   document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
     state.activeCycleId = e.target.value || null;
     await refreshView();
@@ -505,6 +643,7 @@ function render() {
   wireAuthLink(state.auth);
 
   if (route === 'settings') wireSettingsEvents();
+  else wireWorkspaceEvents();
   if (route === 'capacity') wireCapacityEvents();
 }
 
@@ -526,6 +665,7 @@ async function boot() {
 
     state.token = auth.token;
     state.me = await meApi.get(auth.token);
+    await loadWorkspaces();
     await loadCoreData();
 
     window.addEventListener('hashchange', async () => {
