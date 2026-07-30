@@ -20,6 +20,7 @@ import {
   renderHomeView,
   renderSetupProgressBanner,
   setupSectionClass,
+  renderPlanningCta,
   renderPlannerView,
   renderDependenciesView,
   renderAlertsView,
@@ -385,10 +386,10 @@ function renderSettings() {
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="panel-head">
-          <h2 class="omc-section-title">3. Add your team</h2>
+          <h2 class="omc-section-title">3. Add your team (for capacity)</h2>
           <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
         </div>
-        <p class="omc-lead" style="margin-bottom:12px">Add each person’s name, weekly hours, and any planned time off. PTO reduces their capacity automatically.</p>
+        <p class="omc-lead" style="margin-bottom:12px">Who will do the work? Add names and weekly hours so Capacity can show overload. You can skip this until after you list work in Planner.</p>
         <div class="form-grid setup-form-grid" style="margin-bottom:12px">
           <label class="field">
             <span class="field-label">Name</span>
@@ -452,9 +453,10 @@ function renderSettings() {
           <tbody>${resourceRows || '<tr><td colspan="6">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
         </div>
-        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: Planner →</a></div>` : ''}
       </section>
       </div>
+
+      ${renderPlanningCta(state)}
 
       <p class="setup-optional-label omc-lead">Optional — you can skip these until later</p>
 
@@ -781,6 +783,7 @@ function wireSettingsEvents() {
     state.activeCycleId = result.cycle.id;
     state.activeScenarioId = result.default_scenario_id;
     await refreshView();
+    if (getSetupProgress(state).planningReady) navigate('planner');
   });
 
   document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
