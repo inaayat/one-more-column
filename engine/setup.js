@@ -8,6 +8,13 @@ export function getSetupProgress(state) {
   const hasResources = state.resources.length > 0;
   const hasPlanItems = state.planItems.length > 0;
 
+  /** Workspace + period — enough to open Planner and list work. */
+  const planningReady = hasWorkspace && hasCycle;
+  /** Full team roster — needed for meaningful capacity checks. */
+  const teamReady = hasResources;
+  const setupComplete = planningReady && teamReady;
+  const onboardingComplete = planningReady && hasPlanItems;
+
   const steps = [
     {
       id: 'workspace',
@@ -18,41 +25,41 @@ export function getSetupProgress(state) {
     },
     {
       id: 'cycle',
-      label: 'Choose the time period you are planning',
+      label: 'Choose the time period',
       done: hasCycle,
       route: 'settings',
       anchor: 'setup-cycle',
     },
     {
+      id: 'plan',
+      label: 'What are you actually planning?',
+      done: hasPlanItems,
+      route: 'planner',
+      anchor: 'setup-planning',
+    },
+    {
       id: 'people',
-      label: 'Add the people on your team',
+      label: 'Add your team (for capacity)',
       done: hasResources,
       route: 'settings',
       anchor: 'setup-people',
     },
     {
-      id: 'plan',
-      label: 'List the work in Planner',
-      done: hasPlanItems,
-      route: 'planner',
-      anchor: null,
-    },
-    {
       id: 'capacity',
       label: 'See who has time left',
-      done: hasPlanItems,
+      done: hasPlanItems && hasResources,
       route: 'capacity',
       anchor: null,
     },
   ];
 
   const nextStep = steps.find((s) => !s.done) || null;
-  const setupComplete = hasWorkspace && hasCycle && hasResources;
-  const onboardingComplete = setupComplete && hasPlanItems;
 
   return {
     steps,
     nextStep,
+    planningReady,
+    teamReady,
     setupComplete,
     onboardingComplete,
     hasWorkspace,
@@ -64,8 +71,8 @@ export function getSetupProgress(state) {
 
 export function getInitialRoute(state) {
   const progress = getSetupProgress(state);
-  if (!progress.setupComplete) return 'settings';
-  if (!progress.onboardingComplete && progress.nextStep) return progress.nextStep.route;
+  if (!progress.planningReady) return 'settings';
+  if (!progress.hasPlanItems) return 'planner';
   return 'planner';
 }
 
@@ -74,7 +81,7 @@ const GATED_ROUTES = new Set(['planner', 'plan', 'capacity']);
 export function resolveRoute(route, state) {
   const progress = getSetupProgress(state);
   const normalized = normalizeRoute(route);
-  if (!progress.setupComplete && GATED_ROUTES.has(normalized)) return 'settings';
+  if (!progress.planningReady && GATED_ROUTES.has(normalized)) return 'settings';
   return normalized;
 }
 
@@ -103,7 +110,7 @@ export function navItems(state) {
     highlight: progress.nextStep?.route === 'capacity',
   };
 
-  if (!progress.setupComplete) {
+  if (!progress.planningReady) {
     return [setup, planner, capacity];
   }
 

@@ -23,7 +23,18 @@ export function renderSetupProgressBanner(state) {
     })
     .join('');
 
-  const title = progress.setupComplete ? 'You are almost done' : 'Start here';
+  const title = !progress.planningReady
+    ? 'Start here'
+    : progress.nextStep?.id === 'plan'
+      ? 'What are you actually planning?'
+      : progress.setupComplete
+        ? 'You are almost done'
+        : 'Almost there';
+  const intro = !progress.planningReady
+    ? '<p class="omc-lead">First, name your team area and choose the time period — two columns on the left. Then you can list your real work in <strong>Planner</strong>.</p>'
+    : progress.nextStep?.id === 'plan'
+      ? '<p class="omc-lead">Setup basics are done. Open <strong>Planner</strong> and add rows for what you are actually trying to get done — deliverables, reviews, meetings, anything with hours and due dates.</p>'
+      : '<p class="omc-lead">Add your work in <strong>Planner</strong>, add people in step 3 if you have not yet, then check <strong>Capacity</strong>.</p>';
   const lead = progress.nextStep
     ? `<p class="setup-progress-lead"><strong>Do this next:</strong> ${progress.nextStep.label}</p>`
     : '';
@@ -31,8 +42,7 @@ export function renderSetupProgressBanner(state) {
   return `
     <section class="panel setup-progress-banner" aria-label="Setup progress">
       <h2 class="setup-progress-title">${title}</h2>
-      <p class="omc-lead">There are three things to set up on this page. Work left to right — the column with the green border is the one to fill in now.</p>
-      <p class="omc-lead setup-progress-sub">After that, you will add your tasks in <strong>Planner</strong> and check hours in <strong>Capacity</strong>.</p>
+      ${intro}
       <ol class="setup-progress-steps">${stepItems}</ol>
       ${lead}
     </section>
@@ -44,6 +54,25 @@ export function setupSectionClass(progress, anchor) {
   return `panel setup-section${isCurrent ? ' setup-section-current' : ''}`;
 }
 
+export function renderPlanningCta(state) {
+  const progress = getSetupProgress(state);
+  if (!progress.planningReady) return '';
+
+  const isCurrent = progress.nextStep?.id === 'plan';
+  const hasRows = progress.hasPlanItems;
+
+  return `
+    <section id="setup-planning" class="panel setup-planning-cta${isCurrent ? ' setup-section-current' : ''}">
+      <h2 class="omc-section-title">What are you actually planning?</h2>
+      <p class="omc-lead">This is the main event — list the work: deliverables, reviews, meetings, ad-hoc tasks. Each row needs a title, hours, and due date.</p>
+      ${hasRows
+        ? `<p class="omc-lead"><span class="badge badge-ok">${state.planItems.length} row(s) in Planner</span> — <a href="#/planner">keep adding or editing</a>.</p>`
+        : `<div class="btn-row"><a class="btn btn-refresh-solid" href="#/planner">Open Planner →</a></div>`}
+      ${!progress.teamReady ? '<p class="omc-lead setup-planning-note">You can plan before adding your team. Add people in step 3 when you are ready to check capacity.</p>' : ''}
+    </section>
+  `;
+}
+
 export function renderHomeView({ state, escapeHtml }) {
   const progress = getSetupProgress(state);
   const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
@@ -51,17 +80,19 @@ export function renderHomeView({ state, escapeHtml }) {
 
   const setupStatus = progress.onboardingComplete
     ? '<span class="badge badge-ok">Ready to plan</span>'
-    : progress.setupComplete
-      ? '<span class="badge">Add your work</span>'
+    : progress.planningReady
+      ? progress.hasPlanItems
+        ? '<span class="badge">Check capacity</span>'
+        : '<span class="badge badge-warn">List your work</span>'
       : '<span class="badge badge-warn">Finish setup first</span>';
 
   const nextStep = progress.nextStep
     ? { href: `#/${progress.nextStep.route}`, label: progress.nextStep.label }
     : { href: '#/capacity', label: 'View your capacity grid' };
 
-  const secondaryCta = progress.setupComplete
-    ? { href: '#/planner', label: 'Open Planner' }
-    : { href: '#/planner', label: 'Start planning' };
+  const secondaryCta = progress.planningReady
+    ? { href: '#/settings', label: 'Team & settings' }
+    : { href: '#/settings', label: 'Open Setup' };
 
   return `
     <section class="panel home-hero">
@@ -86,45 +117,39 @@ export function renderHomeView({ state, escapeHtml }) {
 
     <section class="panel home-guide">
       <h2 class="omc-section-title">How to use this tool</h2>
-      <p class="omc-lead">Work through the tabs left to right. <strong>Setup</strong> comes first until your workspace, cycle, and team are ready — then you mostly live on <strong>Plan</strong> and <strong>Capacity</strong>.</p>
+      <p class="omc-lead">Name your team area and time period in <strong>Setup</strong>, then list your actual work in <strong>Planner</strong>. Add people when you are ready to check <strong>Capacity</strong>.</p>
 
       <ol class="guide-steps">
-        <li class="guide-step${progress.nextStep?.id === 'workspace' || progress.nextStep?.id === 'cycle' || progress.nextStep?.id === 'people' ? ' guide-step-current' : ''}">
+        <li class="guide-step${progress.nextStep?.id === 'workspace' || progress.nextStep?.id === 'cycle' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
             <span class="guide-step-num">1</span>
-            <h3>Set up your workspace</h3>
+            <h3>Name your area &amp; time period</h3>
           </div>
-          <p>Start on <a href="#/settings">Setup</a> (first tab when you're new). A <strong>workspace</strong> is your team's own pool of people and plans.</p>
-          <ul class="guide-tips">
-            <li>Create a workspace (for example, <em>Engineering</em> or <em>Design</em>).</li>
-            <li>Add a <strong>planning cycle</strong> for the time period you're planning (quarter, sprint, or year).</li>
-          </ul>
-        </li>
-
-        <li class="guide-step">
-          <div class="guide-step-head">
-            <span class="guide-step-num">2</span>
-            <h3>Add your people</h3>
-          </div>
-          <p>Still on <a href="#/settings">Setup</a>, add everyone who will carry work in this workspace.</p>
-          <ul class="guide-tips">
-            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours). Add <strong>PTO dates</strong> in the same form if you know them.</li>
-            <li>Assign a <strong>team</strong> name if you want to filter the capacity view later.</li>
-          </ul>
+          <p>Start on <a href="#/settings">Setup</a>. Pick a <strong>team area</strong> and the <strong>time period</strong> you are planning for.</p>
         </li>
 
         <li class="guide-step${progress.nextStep?.id === 'plan' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
-            <span class="guide-step-num">3</span>
-            <h3>List the work</h3>
+            <span class="guide-step-num">2</span>
+            <h3>What are you actually planning?</h3>
           </div>
-          <p>Open <a href="#/planner">Planner</a> and add rows for the active cycle — deliverables, reviews, meetings, anything else. Use <strong>Type</strong> to label rows; gates and dependencies are edited inline.</p>
+          <p>Open <a href="#/planner">Planner</a> and add rows — deliverables, reviews, meetings, anything with hours and a due date.</p>
           <ul class="guide-tips">
             <li><strong>Title</strong> — what needs to be done.</li>
             <li><strong>Type</strong> — general, deliverable, review, meeting, admin, or other.</li>
-            <li><strong>Work hours</strong> — effort to complete it. Review hours can be entered or derived from your policy.</li>
-            <li><strong>Due week</strong> — when the work should land. Hours count toward that week on the capacity grid.</li>
-            <li>Already have a spreadsheet? Paste CSV on the Plan page or use <strong>Export CSV</strong> to download what you have.</li>
+            <li><strong>Work hours</strong> and <strong>due week</strong> — drive the capacity grid.</li>
+          </ul>
+        </li>
+
+        <li class="guide-step${progress.nextStep?.id === 'people' ? ' guide-step-current' : ''}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">3</span>
+            <h3>Add your team (for capacity)</h3>
+          </div>
+          <p>Back on <a href="#/settings">Setup</a>, add who will carry the work and any PTO.</p>
+          <ul class="guide-tips">
+            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours).</li>
+            <li>You can list work in Planner before your team is complete.</li>
           </ul>
         </li>
 
@@ -133,11 +158,7 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">4</span>
             <h3>Model blockers (optional)</h3>
           </div>
-          <p>If something cannot start until something else is done, add a <strong>gate</strong> on that row in Planner (predecessor, gate name, gate due date).</p>
-          <ul class="guide-tips">
-            <li>Add a gate (for example, <em>Prerequisite complete</em>) on the plan item it blocks.</li>
-            <li>Mark gates <strong>met</strong> when they're done — readiness dates update automatically.</li>
-          </ul>
+          <p>If something cannot start until something else is done, add a <strong>gate</strong> on that row in Planner.</p>
         </li>
 
         <li class="guide-step${progress.nextStep?.id === 'capacity' ? ' guide-step-current' : ''}">
@@ -448,6 +469,12 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
           ? '<strong>Live plan</strong> — this is the version you are working from. You can still change it anytime; click Save plan when you are done editing.'
           : '<strong>Draft</strong> — try ideas here first. When you are happy, click Mark as live plan.'}
       </p>
+
+      ${!state.planItems?.length ? `
+      <div class="planner-welcome">
+        <h2 class="omc-section-title">What are you actually planning?</h2>
+        <p class="omc-lead">Add your first row below — title, type, hours, due date. List everything you need to get done this period; capacity checks come after.</p>
+      </div>` : ''}
 
       <div class="form-grid planner-quick-add" style="margin-bottom:14px">
         <label class="field field-span-2">
