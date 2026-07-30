@@ -115,7 +115,7 @@ function captureSetupForm() {
   if (el('new-resource-team')) draft.personTeam = el('new-resource-team').value;
   if (el('new-resource-hours')) draft.personHours = el('new-resource-hours').value;
 
-  document.querySelectorAll('#setup-team-list .team-person-row[data-id]').forEach((row) => {
+  document.querySelectorAll('#setup-team-list tr[data-id]').forEach((row) => {
     const resource = state.resources.find((r) => r.id === row.dataset.id);
     if (!resource) return;
     resource.name = row.querySelector('[data-field="name"]')?.value ?? resource.name;
@@ -150,65 +150,43 @@ function renderTeamPersonRows(state, escapeHtml) {
   const existing = state.resources
     .map(
       (r) => `
-      <div class="team-person-row" data-id="${escapeHtml(r.id)}">
-        <label class="field team-field">
-          <span class="field-label">Who</span>
-          <input class="field-input" data-field="name" value="${escapeHtml(r.name)}" />
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Role</span>
-          <input class="field-input" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="e.g. Engineer" />
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Std h/wk</span>
-          <input class="field-input" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" />
-        </label>
-        <button type="button" class="btn btn-ghost btn-sm team-remove-btn btn-delete-resource" title="Remove">×</button>
-      </div>`,
+      <tr data-id="${escapeHtml(r.id)}">
+        <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
+        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Role" /></td>
+        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" /></td>
+        <td class="team-action"><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove">×</button></td>
+      </tr>`,
     )
     .join('');
 
   const drafts = (state.setupDraftPeople || [])
     .map(
       (p, i) => `
-      <div class="team-person-row team-person-draft" data-draft-idx="${i}">
-        <label class="field team-field">
-          <span class="field-label">Who</span>
-          <span class="team-draft-value">${escapeHtml(p.name)}</span>
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Role</span>
-          <span class="team-draft-value">${escapeHtml(p.team || '—')}</span>
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Std h/wk</span>
-          <span class="team-draft-value">${p.weekly_hours ?? 32}</span>
-        </label>
-        <button type="button" class="btn btn-ghost btn-sm team-remove-btn btn-remove-draft" data-idx="${i}" title="Remove">×</button>
-      </div>`,
+      <tr class="team-draft-row" data-draft-idx="${i}">
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.team || '—')}</td>
+        <td>${p.weekly_hours ?? 32}</td>
+        <td class="team-action"><button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}" title="Remove">×</button></td>
+      </tr>`,
     )
     .join('');
 
   return `
-    <div class="team-people-list" id="setup-team-list">
-      ${existing}
-      ${drafts}
-      <div class="team-add-row" id="setup-team-add-row">
-        <label class="field team-field">
-          <span class="field-label">Who</span>
-          <input id="new-resource-name" class="field-input" placeholder="Name" value="${escapeHtml(state.setupDraft.personName)}" />
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Role</span>
-          <input id="new-resource-team" class="field-input" placeholder="e.g. Engineer" value="${escapeHtml(state.setupDraft.personTeam)}" />
-        </label>
-        <label class="field team-field">
-          <span class="field-label">Std h/wk</span>
-          <input id="new-resource-hours" class="field-input" type="number" step="0.5" value="${escapeHtml(state.setupDraft.personHours)}" />
-        </label>
-        <button type="button" class="btn btn-ghost btn-sm team-add-btn" id="add-to-team-list" title="Add person">+</button>
-      </div>
-    </div>`;
+    <table class="team-table">
+      <thead>
+        <tr><th>Who</th><th>Role</th><th>h/wk</th><th></th></tr>
+      </thead>
+      <tbody id="setup-team-list">
+        ${existing}
+        ${drafts}
+        <tr class="team-add-row" id="setup-team-add-row">
+          <td><input id="new-resource-name" class="field-input field-sm" placeholder="Name" value="${escapeHtml(state.setupDraft.personName)}" /></td>
+          <td><input id="new-resource-team" class="field-input field-sm" placeholder="Role" value="${escapeHtml(state.setupDraft.personTeam)}" /></td>
+          <td><input id="new-resource-hours" class="field-input field-sm" type="number" step="0.5" value="${escapeHtml(state.setupDraft.personHours)}" /></td>
+          <td class="team-action"><button type="button" class="btn btn-ghost btn-sm" id="add-to-team-list" title="Add">+</button></td>
+        </tr>
+      </tbody>
+    </table>`;
 }
 
 function persistActiveWorkspace() {
@@ -438,15 +416,10 @@ function getActiveSetupMode(kind) {
 function renderSetupModeToggle(kind, activeMode, hasExisting) {
   const labels =
     kind === 'workspace'
-      ? { existing: 'Existing workspace', new: 'New workspace' }
-      : { existing: 'Existing plan', new: 'New plan' };
-  const hint =
-    kind === 'workspace'
-      ? 'Where does this plan live?'
-      : 'Open a plan you already have, or name a new one.';
+      ? { existing: 'Existing', new: 'New' }
+      : { existing: 'Existing', new: 'New' };
   return `
-    <p class="setup-mode-hint omc-lead">${hint}</p>
-    <div class="setup-mode-toggle view-toggle" role="group" data-setup-mode="${kind}">
+    <div class="setup-mode-toggle view-toggle view-toggle-sm" role="group" data-setup-mode="${kind}">
       <button type="button" class="view-toggle-btn${activeMode === 'existing' ? ' active' : ''}" data-mode="existing"${!hasExisting ? ' disabled' : ''}>${labels.existing}</button>
       <button type="button" class="view-toggle-btn${activeMode === 'new' ? ' active' : ''}" data-mode="new">${labels.new}</button>
     </div>
@@ -472,11 +445,7 @@ function renderSetupSubmitBar(progress) {
     ? 'Continue to Planner →'
     : 'Create the plan →';
   return `
-    <div class="setup-submit-bar panel">
-      <div>
-        <h2 class="omc-section-title">Ready?</h2>
-        <p class="omc-lead">Name your plan (workspace + dates), add anyone on the team, then create everything at once. Press <strong>Enter</strong> or click below.</p>
-      </div>
+    <div class="setup-submit-inline">
       <button type="submit" class="btn btn-refresh-solid setup-submit-btn">${label}</button>
     </div>
   `;
@@ -567,7 +536,7 @@ async function submitSetupPlan() {
     });
   }
 
-  const rows = [...document.querySelectorAll('#setup-team-list .team-person-row[data-id]')];
+  const rows = [...document.querySelectorAll('#setup-team-list tr[data-id]')];
   if (rows.length) {
     const resources = rows.map((row) => ({
       id: row.dataset.id,
@@ -663,83 +632,80 @@ function renderSettings() {
     body: `
       <form id="setup-plan-form" class="setup-plan-form">
       <div class="setup-primary">
-      ${renderSetupProgressBanner(state)}
       <div class="setup-steps-row setup-steps-row-2">
       <section id="setup-plan" class="${setupSectionClass(progress, 'setup-plan')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">1. Name your plan</h2>
-        <p class="omc-lead setup-section-lead">Pick a workspace, then name this plan — start and end dates, and how you want to track work.</p>
+        <div class="setup-section-head">
+          <h2 class="omc-section-title">Name your plan</h2>
+          ${renderSetupSubmitBar(progress)}
+        </div>
 
-        <h3 class="setup-subheading">Workspace</h3>
-        ${renderSetupModeToggle('workspace', wsMode, state.workspaces.length > 0)}
+        <div class="setup-field-row">
+          <span class="setup-field-label">Workspace</span>
+          ${renderSetupModeToggle('workspace', wsMode, state.workspaces.length > 0)}
+        </div>
         <div class="setup-mode-panel${wsMode === 'existing' ? '' : ' hidden'}">
-          <label class="field">
-            <span class="field-label">Which workspace?</span>
+          <label class="field field-compact">
             <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
           </label>
         </div>
         <div class="setup-mode-panel${wsMode === 'new' ? '' : ' hidden'}">
-          <label class="field">
-            <span class="field-label">New workspace name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering" value="${escapeHtml(draft.newWorkspaceName)}" />
+          <label class="field field-compact">
+            <input id="new-workspace-name" class="field-input" placeholder="Workspace name" value="${escapeHtml(draft.newWorkspaceName)}" />
           </label>
         </div>
 
-        <h3 class="setup-subheading">Plan</h3>
-        ${wsMode === 'new'
-          ? '<p class="omc-lead setup-section-lead">New workspace — name your first plan below.</p>'
-          : renderSetupModeToggle('cycle', cycleMode, state.cycles.length > 0)}
+        ${wsMode !== 'new' ? `
+        <div class="setup-field-row">
+          <span class="setup-field-label">Plan</span>
+          ${renderSetupModeToggle('cycle', cycleMode, state.cycles.length > 0)}
+        </div>
+        ` : ''}
         <div class="setup-mode-panel${cycleMode === 'existing' && wsMode !== 'new' ? '' : ' hidden'}">
-          <label class="field">
-            <span class="field-label">Which plan?</span>
+          <label class="field field-compact">
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           </label>
         </div>
         <div class="setup-mode-panel${cycleMode === 'new' || wsMode === 'new' ? '' : ' hidden'}">
-        <div class="form-grid setup-form-grid">
-          <label class="field">
+        <div class="form-grid setup-plan-grid">
+          <label class="field field-compact">
             <span class="field-label">Plan name</span>
             <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" value="${escapeHtml(draft.newCycleName)}" />
           </label>
-          <label class="field">
-            <span class="field-label">Starts</span>
-            <input id="new-cycle-start" class="field-input" type="date" required value="${escapeHtml(draft.newCycleStart)}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Ends</span>
-            <input id="new-cycle-end" class="field-input" type="date" required value="${escapeHtml(draft.newCycleEnd)}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Track work by</span>
+          <label class="field field-compact">
+            <span class="field-label">Track by</span>
             <select id="new-cycle-granularity" class="field-input">
               <option value="day"${gran === 'day' ? ' selected' : ''}>Day</option>
               <option value="week"${gran === 'week' ? ' selected' : ''}>Week</option>
               <option value="month"${gran === 'month' ? ' selected' : ''}>Month</option>
             </select>
           </label>
+          <label class="field field-compact">
+            <span class="field-label">Starts</span>
+            <input id="new-cycle-start" class="field-input" type="date" required value="${escapeHtml(draft.newCycleStart)}" />
+          </label>
+          <label class="field field-compact">
+            <span class="field-label">Ends</span>
+            <input id="new-cycle-end" class="field-input" type="date" required value="${escapeHtml(draft.newCycleEnd)}" />
+          </label>
         </div>
         </div>
-        </div>
-        <div class="setup-section-actions">
         ${wsMode === 'existing' && state.workspaces.length > 1 && state.activeWorkspaceId ? `
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete workspace</button>
+          <button type="button" class="btn btn-ghost btn-sm setup-delete-btn" id="delete-workspace">Delete workspace</button>
         ` : ''}
         ${cycleMode === 'existing' && wsMode !== 'new' && state.activeCycleId ? `
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete plan</button>
+          <button type="button" class="btn btn-ghost btn-sm setup-delete-btn" id="delete-cycle">Delete plan</button>
         ` : ''}
         </div>
       </section>
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="setup-section-body">
-        <h2 class="omc-section-title">2. Team <span class="setup-optional-tag">optional</span></h2>
-        <p class="omc-lead setup-section-lead">One row per person — who, role, standard hours.</p>
+        <h2 class="omc-section-title">Team <span class="setup-optional-tag">optional</span></h2>
         ${renderTeamPersonRows(state, escapeHtml)}
         </div>
       </section>
       </div>
-
-      ${renderSetupSubmitBar(progress)}
       </div>
       </form>
     `,
@@ -1129,7 +1095,7 @@ function wireSettingsEvents() {
   document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
     btn.addEventListener('click', async () => {
       captureSetupForm();
-      const row = btn.closest('.team-person-row');
+      const row = btn.closest('tr');
       const id = row?.dataset?.id;
       if (!id) return;
       await resourcesApi.delete(state.token, state.activeWorkspaceId, id);

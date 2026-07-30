@@ -3,50 +3,7 @@
 import { getSetupProgress } from './setup.js';
 
 export function renderSetupProgressBanner(state) {
-  const progress = getSetupProgress(state);
-  if (progress.onboardingComplete) return '';
-
-  const stepItems = progress.steps
-    .map((step, i) => {
-      const isCurrent = progress.nextStep?.id === step.id;
-      const cls = [
-        'setup-progress-step',
-        step.done ? 'done' : '',
-        isCurrent ? 'current' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
-      return `<li class="${cls}">
-        <span class="setup-progress-num" aria-hidden="true">${step.done ? '✓' : i + 1}</span>
-        <span>${step.label}</span>
-      </li>`;
-    })
-    .join('');
-
-  const title = !progress.planningReady
-    ? 'Start here'
-    : progress.nextStep?.id === 'plan'
-      ? 'What are you actually planning?'
-      : progress.setupComplete
-        ? 'You are almost done'
-        : 'Almost there';
-  const intro = !progress.planningReady
-    ? '<p class="omc-lead">Name your plan in step 1 — workspace, dates, and how you track work. Then click <strong>Create the plan</strong>.</p>'
-    : progress.nextStep?.id === 'plan'
-      ? '<p class="omc-lead">Setup basics are done. Open <strong>Planner</strong> and add rows for what you are actually trying to get done — deliverables, reviews, meetings, anything with hours and due dates.</p>'
-      : '<p class="omc-lead">Add your work in <strong>Planner</strong>, add people in step 2 if you have not yet, then check <strong>Capacity</strong>.</p>';
-  const lead = progress.nextStep
-    ? `<p class="setup-progress-lead"><strong>Do this next:</strong> ${progress.nextStep.label}</p>`
-    : '';
-
-  return `
-    <section class="panel setup-progress-banner" aria-label="Setup progress">
-      <h2 class="setup-progress-title">${title}</h2>
-      ${intro}
-      <ol class="setup-progress-steps">${stepItems}</ol>
-      ${lead}
-    </section>
-  `;
+  return '';
 }
 
 export function setupSectionClass(progress, anchor) {
