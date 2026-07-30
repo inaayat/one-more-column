@@ -1,27 +1,66 @@
 /** Plan Builder + Dependencies view helpers (H2 / C2). */
 
+import { getSetupProgress } from './setup.js';
+
+export function renderSetupProgressBanner(state) {
+  const progress = getSetupProgress(state);
+  if (progress.onboardingComplete) return '';
+
+  const stepItems = progress.steps
+    .map((step, i) => {
+      const isCurrent = progress.nextStep?.id === step.id;
+      const cls = [
+        'setup-progress-step',
+        step.done ? 'done' : '',
+        isCurrent ? 'current' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      return `<li class="${cls}">
+        <span class="setup-progress-num" aria-hidden="true">${step.done ? '✓' : i + 1}</span>
+        <span>${step.label}</span>
+      </li>`;
+    })
+    .join('');
+
+  const title = progress.setupComplete ? 'Almost there' : "Let's get you set up";
+  const lead = progress.nextStep
+    ? `<p class="setup-progress-lead"><strong>Up next:</strong> ${progress.nextStep.label}</p>`
+    : '';
+
+  return `
+    <section class="panel setup-progress-banner" aria-label="Setup progress">
+      <h2 class="setup-progress-title">${title}</h2>
+      <p class="omc-lead">Complete these steps in order. The highlighted section below is where you should work now.</p>
+      <ol class="setup-progress-steps">${stepItems}</ol>
+      ${lead}
+    </section>
+  `;
+}
+
+export function setupSectionClass(progress, anchor) {
+  const isCurrent = progress.nextStep?.anchor === anchor;
+  return `panel setup-section${isCurrent ? ' setup-section-current' : ''}`;
+}
+
 export function renderHomeView({ state, escapeHtml }) {
+  const progress = getSetupProgress(state);
   const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
   const workspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
-  const hasWorkspace = Boolean(workspace);
-  const hasCycle = Boolean(cycle);
-  const hasResources = state.resources.length > 0;
-  const hasPlanItems = state.planItems.length > 0;
-  const setupComplete = hasWorkspace && hasCycle && hasResources;
 
-  const setupStatus = setupComplete
+  const setupStatus = progress.onboardingComplete
     ? '<span class="badge badge-ok">Ready to plan</span>'
-    : '<span class="badge badge-warn">Finish setup first</span>';
+    : progress.setupComplete
+      ? '<span class="badge">Add your work</span>'
+      : '<span class="badge badge-warn">Finish setup first</span>';
 
-  const nextStep = !hasWorkspace
-    ? { href: '#/settings', label: 'Create a workspace in Settings' }
-    : !hasCycle
-      ? { href: '#/settings', label: 'Add a planning cycle' }
-      : !hasResources
-        ? { href: '#/settings', label: 'Add your team members' }
-        : !hasPlanItems
-          ? { href: '#/plan', label: 'Add your first plan items' }
-          : { href: '#/capacity', label: 'View your capacity grid' };
+  const nextStep = progress.nextStep
+    ? { href: `#/${progress.nextStep.route}`, label: progress.nextStep.label }
+    : { href: '#/capacity', label: 'View your capacity grid' };
+
+  const secondaryCta = progress.setupComplete
+    ? { href: '#/plan', label: 'Open Plan' }
+    : { href: '#/home', label: 'Read the guide' };
 
   return `
     <section class="panel home-hero">
@@ -40,21 +79,21 @@ export function renderHomeView({ state, escapeHtml }) {
       </div>
       <div class="btn-row home-cta">
         <a class="btn btn-refresh-solid" href="${nextStep.href}">${escapeHtml(nextStep.label)}</a>
-        <a class="btn btn-ghost" href="#/plan">Open Plan</a>
+        <a class="btn btn-ghost" href="${secondaryCta.href}">${escapeHtml(secondaryCta.label)}</a>
       </div>
     </section>
 
     <section class="panel home-guide">
       <h2 class="omc-section-title">How to use this tool</h2>
-      <p class="omc-lead">Follow these steps once per workspace. After that, you mostly live on <strong>Plan</strong> and <strong>Capacity</strong>.</p>
+      <p class="omc-lead">Work through the tabs left to right. <strong>Setup</strong> comes first until your workspace, cycle, and team are ready — then you mostly live on <strong>Plan</strong> and <strong>Capacity</strong>.</p>
 
       <ol class="guide-steps">
-        <li class="guide-step">
+        <li class="guide-step${progress.nextStep?.id === 'workspace' || progress.nextStep?.id === 'cycle' || progress.nextStep?.id === 'people' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
             <span class="guide-step-num">1</span>
             <h3>Set up your workspace</h3>
           </div>
-          <p>Go to <a href="#/settings">Settings</a>. A <strong>workspace</strong> is your team's own pool of people and plans — separate from other teams.</p>
+          <p>Start on <a href="#/settings">Setup</a> (first tab when you're new). A <strong>workspace</strong> is your team's own pool of people and plans.</p>
           <ul class="guide-tips">
             <li>Create a workspace (for example, <em>Engineering</em> or <em>Design</em>).</li>
             <li>Add a <strong>planning cycle</strong> for the time period you're planning (quarter, sprint, or year).</li>
@@ -66,7 +105,7 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">2</span>
             <h3>Add your people</h3>
           </div>
-          <p>Still in <a href="#/settings">Settings</a>, add everyone who will carry work in this workspace.</p>
+          <p>Still on <a href="#/settings">Setup</a>, add everyone who will carry work in this workspace.</p>
           <ul class="guide-tips">
             <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours).</li>
             <li>Optional: add <strong>time off</strong> so capacity reflects PTO and holidays.</li>
@@ -74,7 +113,7 @@ export function renderHomeView({ state, escapeHtml }) {
           </ul>
         </li>
 
-        <li class="guide-step">
+        <li class="guide-step${progress.nextStep?.id === 'plan' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
             <span class="guide-step-num">3</span>
             <h3>List the work</h3>
@@ -100,7 +139,7 @@ export function renderHomeView({ state, escapeHtml }) {
           </ul>
         </li>
 
-        <li class="guide-step">
+        <li class="guide-step${progress.nextStep?.id === 'capacity' ? ' guide-step-current' : ''}">
           <div class="guide-step-head">
             <span class="guide-step-num">5</span>
             <h3>Check capacity</h3>

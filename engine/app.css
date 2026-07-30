@@ -121,6 +121,19 @@ body {
 }
 .nav-link:hover { background: var(--color-surface-muted); color: var(--color-text-strong); }
 .nav-link.active { background: var(--color-accent-soft); color: var(--color-accent); }
+.nav-link-next {
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.25);
+}
+.nav-link-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 5px;
+  border-radius: 50%;
+  background: var(--color-accent-mint);
+  vertical-align: middle;
+}
 
 .panel-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
 .omc-section-title { font-size: 16px; font-weight: 800; color: var(--color-text-strong); margin-bottom: 12px; }
@@ -336,6 +349,75 @@ body {
   text-decoration: none;
 }
 .guide-step a:hover { text-decoration: underline; }
+.guide-step a:hover { text-decoration: underline; }
+.guide-step-current {
+  border-color: var(--color-accent-mint);
+  box-shadow: inset 0 0 0 1px rgba(27, 219, 173, 0.35);
+  background: var(--color-accent-soft);
+}
+
+.setup-progress-banner { margin-bottom: 16px; }
+.setup-progress-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--color-text-strong);
+  margin-bottom: 6px;
+}
+.setup-progress-steps {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.setup-progress-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.setup-progress-step.done { color: var(--color-ok-strong); }
+.setup-progress-step.current { color: var(--color-text-strong); font-weight: 700; }
+.setup-progress-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  flex-shrink: 0;
+}
+.setup-progress-step.done .setup-progress-num {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-mint);
+  color: var(--color-accent);
+}
+.setup-progress-step.current .setup-progress-num {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.setup-progress-lead {
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+.setup-section {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: 20px 22px;
+  box-shadow: var(--shadow-panel);
+}
+.setup-section-current {
+  border-color: var(--color-accent-mint);
+  box-shadow: 0 0 0 3px rgba(27, 219, 173, 0.12), var(--shadow-panel);
+}
+
 .guide-tips {
   margin: 0 0 0 18px;
   font-size: 13px;
