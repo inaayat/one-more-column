@@ -571,14 +571,25 @@ body {
   height: 100%;
 }
 
-.setup-people-form {
-  margin-bottom: 10px;
-}
-
 .setup-people-table {
   flex: 1;
   min-height: 160px;
   margin-top: auto;
+}
+
+.setup-team-table .field-sm {
+  width: 100%;
+  min-width: 0;
+}
+
+.setup-team-table th:last-child,
+.setup-team-table td:last-child {
+  width: 36px;
+  text-align: center;
+}
+
+#setup-team-add-row td {
+  vertical-align: middle;
 }
 
 .setup-advanced {
@@ -649,23 +660,20 @@ body {
   overflow-y: auto;
 }
 
-.setup-optional-row-2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.setup-optional-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.setup-pto-more {
-  margin-bottom: 12px;
+.people-pto-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
   font-size: 13px;
-}
-
-.setup-pto-more summary {
-  cursor: pointer;
-  font-weight: 600;
+  line-height: 1.6;
   color: var(--color-text-secondary);
 }
 
-.pto-cell {
-  min-width: 120px;
+.people-pto-list li {
+  margin-bottom: 8px;
 }
 
 .pto-chip {
@@ -686,7 +694,7 @@ body {
 @media (max-width: 1100px) {
   .setup-steps-row,
   .setup-optional-row,
-  .setup-optional-row-2,
+  .setup-optional-row-3,
   .setup-progress-steps {
     grid-template-columns: 1fr;
   }

@@ -146,9 +146,10 @@ export function renderHomeView({ state, escapeHtml }) {
             <span class="guide-step-num">3</span>
             <h3>Add your team (for capacity)</h3>
           </div>
-          <p>Back on <a href="#/settings">Setup</a>, add who will carry the work and any PTO.</p>
+          <p>Back on <a href="#/settings">Setup</a>, add one row per person — name, role, and standard hours.</p>
           <ul class="guide-tips">
-            <li>Give each person a <strong>weekly capacity</strong> (default is 32 hours).</li>
+            <li><strong>Who</strong>, <strong>role</strong>, and <strong>std h/wk</strong> — that's all you need to start.</li>
+            <li>Add PTO and other details later under <strong>People details</strong> in optional settings.</li>
             <li>You can list work in Planner before your team is complete.</li>
           </ul>
         </li>

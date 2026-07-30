@@ -334,20 +334,11 @@ function collectPersonFromForm() {
     name: document.getElementById('new-resource-name')?.value?.trim() || '',
     team: document.getElementById('new-resource-team')?.value?.trim() || null,
     weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
-    pto_start: document.getElementById('new-resource-pto-start')?.value || null,
-    pto_end: document.getElementById('new-resource-pto-end')?.value || null,
-    pto_hours: document.getElementById('new-resource-pto-hours')?.value || null,
   };
 }
 
 function clearPersonForm() {
-  for (const id of [
-    'new-resource-name',
-    'new-resource-team',
-    'new-resource-pto-start',
-    'new-resource-pto-end',
-    'new-resource-pto-hours',
-  ]) {
+  for (const id of ['new-resource-name', 'new-resource-team']) {
     const el = document.getElementById(id);
     if (el) el.value = '';
   }
@@ -437,29 +428,19 @@ async function submitSetupPlan() {
   state.activeCycleId = cycleId;
 
   for (const person of people) {
-    const { resource } = await resourcesApi.create(state.token, workspaceId, {
+    await resourcesApi.create(state.token, workspaceId, {
       name: person.name,
       team: person.team,
       weekly_hours: person.weekly_hours,
     });
-    if (resource?.id && person.pto_start && person.pto_end) {
-      await timeOffApi.create(state.token, workspaceId, {
-        resource_id: resource.id,
-        start_date: person.pto_start,
-        end_date: person.pto_end,
-        hours_per_day: person.pto_hours || null,
-        reason: 'PTO',
-      });
-    }
   }
 
-  const rows = [...document.querySelectorAll('#resources-table tbody tr[data-id]')];
+  const rows = [...document.querySelectorAll('#setup-team-table tbody tr[data-id]')];
   if (rows.length) {
     const resources = rows.map((row) => ({
       id: row.dataset.id,
       name: row.querySelector('[data-field="name"]')?.value,
       team: row.querySelector('[data-field="team"]')?.value || null,
-      active: row.querySelector('[data-field="active"]')?.checked,
       weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
     }));
     await resourcesApi.patch(state.token, workspaceId, resources);
@@ -478,6 +459,56 @@ function formatPtoChip(entry, escapeHtml) {
   return `<span class="pto-chip">${escapeHtml(start)} → ${escapeHtml(end)} (${escapeHtml(hrs)}) <button type="button" class="btn btn-ghost btn-sm btn-del-pto" data-id="${escapeHtml(entry.id)}" title="Remove PTO">×</button></span>`;
 }
 
+function renderPeopleDetailsPanel(state, escapeHtml) {
+  if (!state.resources.length) {
+    return `
+      <section class="panel">
+        <h2 class="omc-section-title">People details</h2>
+        <p class="omc-lead">Add your team in step 3 first — then you can layer on PTO and other details here.</p>
+      </section>`;
+  }
+
+  const ptoList = state.resources
+    .filter((r) => r.time_off?.length)
+    .map(
+      (r) => `
+      <li><strong>${escapeHtml(r.name)}</strong>
+        ${r.time_off.map((t) => formatPtoChip(t, escapeHtml)).join(' ')}
+      </li>`,
+    )
+    .join('');
+
+  return `
+    <section class="panel">
+      <h2 class="omc-section-title">People details</h2>
+      <p class="omc-lead" style="margin-bottom:12px">PTO and other per-person details — optional, add after your team is set up.</p>
+      <div class="form-grid setup-form-grid">
+        <label class="field">
+          <span class="field-label">Person</span>
+          <select id="pto-resource" class="field-input">
+            ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="field">
+          <span class="field-label">PTO starts</span>
+          <input id="pto-start" class="field-input" type="date" />
+        </label>
+        <label class="field">
+          <span class="field-label">PTO ends</span>
+          <input id="pto-end" class="field-input" type="date" />
+        </label>
+        <label class="field">
+          <span class="field-label">Hours/day (blank = full)</span>
+          <input id="pto-hours" class="field-input" type="number" step="0.5" />
+        </label>
+        <div class="field" style="align-self:end">
+          <button type="button" class="btn btn-ghost" id="add-pto">Add PTO</button>
+        </div>
+      </div>
+      ${ptoList ? `<ul class="people-pto-list">${ptoList}</ul>` : '<p class="omc-lead">No PTO added yet.</p>'}
+    </section>`;
+}
+
 function renderSettings() {
   const policy = state.policy?.config || {};
   const progress = getSetupProgress(state);
@@ -487,10 +518,8 @@ function renderSettings() {
       <tr class="setup-draft-row" data-draft-idx="${i}">
         <td>${escapeHtml(p.name)}</td>
         <td>${escapeHtml(p.team || '—')}</td>
-        <td>${p.weekly_hours ?? 32}h</td>
-        <td>${p.pto_start && p.pto_end ? `${escapeHtml(p.pto_start)} → ${escapeHtml(p.pto_end)}` : '—'}</td>
-        <td><span class="badge">Pending</span></td>
-        <td><button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}">×</button></td>
+        <td>${p.weekly_hours ?? 32}</td>
+        <td><span class="badge">Pending</span> <button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}">×</button></td>
       </tr>`,
     )
     .join('');
@@ -500,18 +529,15 @@ function renderSettings() {
       (r) => `
       <tr data-id="${escapeHtml(r.id)}">
         <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
-        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Team" /></td>
-        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" placeholder="32" value="${r.profiles?.[0]?.weekly_hours ?? ''}" /></td>
-        <td class="pto-cell">${(r.time_off || []).map((t) => formatPtoChip(t, escapeHtml)).join('') || '<span class="omc-lead">—</span>'}</td>
-        <td><label class="check-label"><input type="checkbox" data-field="active" ${r.active ? 'checked' : ''} /> Active</label></td>
-        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove person">×</button></td>
+        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Role" /></td>
+        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" /></td>
+        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove">×</button></td>
       </tr>`,
     )
     .join('');
 
   const wsMode = resolveSetupMode('workspace', state.workspaces.length > 0);
   const cycleMode = resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
-  const hasTeam = state.resources.length > 0 || draftRows;
 
   return renderShell({
     activeNav: 'settings',
@@ -596,85 +622,22 @@ function renderSettings() {
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="setup-section-body">
         <h2 class="omc-section-title">3. Team <span class="setup-optional-tag">optional</span></h2>
-        <p class="omc-lead setup-section-lead">Only needed for capacity checks. You can skip and add people later.</p>
-        ${hasTeam ? `<h3 class="setup-subheading">Already on the team</h3>` : ''}
-        ${hasTeam ? `
+        <p class="omc-lead setup-section-lead">One row per person — name, role, standard hours. Add PTO later under People details.</p>
         <div class="setup-table-scroll setup-people-table">
-        <table class="data-table" id="resources-table">
-          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
-          <tbody>${draftRows}${resourceRows}</tbody>
+        <table class="data-table setup-team-table" id="setup-team-table">
+          <thead><tr><th>Who</th><th>Role</th><th>Std h/wk</th><th></th></tr></thead>
+          <tbody>
+            ${resourceRows}
+            ${draftRows}
+            <tr id="setup-team-add-row">
+              <td><input id="new-resource-name" class="field-input field-sm" placeholder="Name" /></td>
+              <td><input id="new-resource-team" class="field-input field-sm" placeholder="e.g. Engineer" /></td>
+              <td><input id="new-resource-hours" class="field-input field-sm" type="number" step="0.5" value="32" /></td>
+              <td><button type="button" class="btn btn-ghost btn-sm" id="add-to-team-list" title="Add row">+</button></td>
+            </tr>
+          </tbody>
         </table>
         </div>
-        <div class="btn-row" style="margin-bottom:12px">
-          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save edits to names above</button>
-        </div>
-        ` : ''}
-        <h3 class="setup-subheading">${hasTeam ? 'Add someone new' : 'Add people'}</h3>
-        <div class="form-grid setup-form-grid setup-people-form">
-          <label class="field">
-            <span class="field-label">Name</span>
-            <input id="new-resource-name" class="field-input" placeholder="e.g. Alex" />
-          </label>
-          <label class="field">
-            <span class="field-label">Team (optional)</span>
-            <input id="new-resource-team" class="field-input" placeholder="e.g. Engineering" />
-          </label>
-          <label class="field">
-            <span class="field-label">Hours per week</span>
-            <input id="new-resource-hours" class="field-input" type="number" value="32" />
-          </label>
-          <label class="field">
-            <span class="field-label">PTO starts (optional)</span>
-            <input id="new-resource-pto-start" class="field-input" type="date" />
-          </label>
-          <label class="field">
-            <span class="field-label">PTO ends (optional)</span>
-            <input id="new-resource-pto-end" class="field-input" type="date" />
-          </label>
-          <label class="field">
-            <span class="field-label">PTO hours/day (blank = full)</span>
-            <input id="new-resource-pto-hours" class="field-input" type="number" step="0.5" />
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-ghost" id="add-to-team-list">+ Add to team list</button>
-          </div>
-        </div>
-        ${state.resources.length ? `
-        <details class="setup-pto-more">
-          <summary class="omc-lead">Add PTO for someone already listed</summary>
-          <div class="form-grid setup-form-grid" style="margin-top:10px">
-            <label class="field">
-              <span class="field-label">Person</span>
-              <select id="pto-resource" class="field-input">
-                ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
-              </select>
-            </label>
-            <label class="field">
-              <span class="field-label">Starts</span>
-              <input id="pto-start" class="field-input" type="date" />
-            </label>
-            <label class="field">
-              <span class="field-label">Ends</span>
-              <input id="pto-end" class="field-input" type="date" />
-            </label>
-            <label class="field">
-              <span class="field-label">Hours/day (blank = full)</span>
-              <input id="pto-hours" class="field-input" type="number" step="0.5" />
-            </label>
-            <div class="field" style="align-self:end">
-              <button type="button" class="btn btn-ghost" id="add-pto">Add PTO</button>
-            </div>
-          </div>
-        </details>
-        ` : ''}
-        ${!hasTeam ? `
-        <div class="setup-table-scroll setup-people-table">
-        <table class="data-table" id="resources-table">
-          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
-          <tbody>${draftRows || '<tr><td colspan="6" class="omc-lead">Nobody added yet — use the form above.</td></tr>'}</tbody>
-        </table>
-        </div>
-        ` : ''}
         </div>
       </section>
       </div>
@@ -689,7 +652,7 @@ function renderSettings() {
           <h2 id="setup-advanced-title" class="setup-advanced-title">Optional settings</h2>
           <p class="omc-lead">Fine-tune planning rules or review history — come back here when you need them.</p>
         </header>
-      <div class="setup-optional-row setup-optional-row-2">
+      <div class="setup-optional-row setup-optional-row-3">
       <section class="panel">
         <h2 class="omc-section-title">Planning rules</h2>
         <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings. Most people can leave these as-is.</p>
@@ -723,6 +686,8 @@ function renderSettings() {
           </div>
         </div>
       </section>
+
+      ${renderPeopleDetailsPanel(state, escapeHtml)}
 
       <section class="panel">
         <h2 class="omc-section-title">Changelog</h2>
@@ -1085,19 +1050,6 @@ function wireSettingsEvents() {
       await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
       await refreshView();
     });
-  });
-
-  document.getElementById('save-resources')?.addEventListener('click', async () => {
-    const rows = [...document.querySelectorAll('#resources-table tbody tr[data-id]')];
-    const resources = rows.map((row) => ({
-      id: row.dataset.id,
-      name: row.querySelector('[data-field="name"]')?.value,
-      team: row.querySelector('[data-field="team"]')?.value || null,
-      active: row.querySelector('[data-field="active"]')?.checked,
-      weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
-    }));
-    await resourcesApi.patch(state.token, state.activeWorkspaceId, resources);
-    await refreshView();
   });
 
 }
