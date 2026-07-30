@@ -30,10 +30,10 @@ flowchart LR
   H0 --> H1[H1 Shared config DB]
   H1 --> H15[H1.5 Workspaces]
   H15 --> H2[H2 Plan Builder]
-  H2 --> C1[C1 Capacity harden]
-  C1 --> C2[C2 Dependencies]
-  C2 --> C3[C3 Plan Builder + import UI]
-  C3 --> C4[C4 Export optional]
+  H2 --> C2[C2 Dependencies]
+  C2 --> C1[C1 Capacity harden]
+  C1 --> C4[C4 Export + alerts]
+  C4 --> H3[H3 Export polish]
   C3 --> P2[P2 External pull/publish later]
   P2 -.-> P1[P1 Additional profiles]
 ```
@@ -355,13 +355,17 @@ Optional: `<a href="/one-more-column/">One More Column</a>` on inaayat.xyz index
 
 ### 4D. Cutover phases
 
-| Phase | Goal | Parity bar |
-|---|---|---|
-| **H0 — Skeleton + auth** | Static shell under `/one-more-column/` with blank template tokens; Neon Auth login/logout; stub `/api/omc-me`; main-site rewrites live | Signed-in user sees same identity as on `/amc-a-lister/` |
-| **H1 — Shared config in DB** | Resources, teams, policies, manual `plan_items` in Neon Postgres; capacity read API | localStorage no longer SoR for teams |
-| **H1.5 — Workspaces** | Top-level isolation: workspace-scoped resources + cycles; workspace switcher; `cycle_type` (annual/quarter/sprint); FY→FY is new cycle in same workspace | Multiple team plans with separate resource pools; one account accesses all workspaces |
-| **H2 — Plan Builder on Postgres** | Direct entry + optional XLSX/CSV upload → `plan_items`; engines; scenario toggle | One cycle planned in-app without external pull |
-| **H3 — Export + polish** | XLSX/CSV export; in-app alerts; app roles | Export + overload alerts work from Postgres-only data |
+**Completed:** H0, H1, H1.5, H2 (Plan Builder + scenarios + CSV import), C2 (dependencies + readiness core).
+
+| Phase | Status | Goal | Parity bar |
+|---|---|---|---|
+| **H0 — Skeleton + auth** | Done | Static shell under `/one-more-column/` with blank template tokens; Neon Auth login/logout; stub `/api/omc-me`; main-site rewrites live | Signed-in user sees same identity as on `/amc-a-lister/` |
+| **H1 — Shared config in DB** | Done | Resources, teams, policies, manual `plan_items` in Neon Postgres; capacity read API | localStorage no longer SoR for teams |
+| **H1.5 — Workspaces** | Done | Top-level isolation: workspace-scoped resources + cycles; workspace switcher; `cycle_type` (annual/quarter/sprint); FY→FY is new cycle in same workspace | Multiple team plans with separate resource pools; one account accesses all workspaces |
+| **H2 — Plan Builder on Postgres** | Done | Direct entry + CSV import → `plan_items`; scenario create/clone; scenario toggle on capacity | One cycle planned in-app without external pull |
+| **C2 — Dependencies & readiness** | Done (core) | `dependencies` table, gate types, readiness summary, `ready_to_start` / `date_policy` engines | Readiness % view from Postgres gates |
+| **C1 — Capacity harden** | Next | Availability overlay, assumptions panel, manual tasks in capacity math | Remaining-capacity view matches planner intuition |
+| **H3 / C4 — Export + polish** | Next | XLSX/CSV export; in-app alerts; app roles | Export + overload alerts work from Postgres-only data |
 
 **Stack defaults:**
 
@@ -388,7 +392,7 @@ Corporate Okta / ECS from early Hosted Arch drafts is **out of scope** for inaay
 | `services.import` / `export` | XLSX/CSV parse + download |
 
 **API surface — v1 (`omc-` prefixed):**  
-`omc-me`, `omc-workspaces`, `omc-cycles`, `omc-policy`, `omc-plan-items`, `omc-dependencies`, `omc-capacity`, `omc-resources`, `omc-alerts`, `omc-import`, `omc-export`
+`omc-me`, `omc-workspaces`, `omc-scenarios`, `omc-cycles`, `omc-policy`, `omc-plan-items`, `omc-dependencies`, `omc-capacity`, `omc-resources`, `omc-import`, `omc-alerts`, `omc-export`
 
 **Workspace scoping:** `omc-cycles` and `omc-resources` require `?workspace=<id>`. Resources belong to a workspace and persist across cycles within it (editable cycle-over-cycle, not required). Capacity derives workspace from the selected cycle.
 

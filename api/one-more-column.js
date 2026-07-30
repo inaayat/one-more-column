@@ -1,6 +1,9 @@
 import { getAuth } from '../lib/neon-auth.js';
 import { db, ensureSchema } from '../lib/db.js';
 import { handleWorkspaces } from '../lib/handlers/workspaces.js';
+import { handleScenarios } from '../lib/handlers/scenarios.js';
+import { handleDependencies } from '../lib/handlers/dependencies.js';
+import { handleImport } from '../lib/handlers/import.js';
 import { handleCycles } from '../lib/handlers/cycles.js';
 import { handlePolicy } from '../lib/handlers/policy.js';
 import { handleResources } from '../lib/handlers/resources.js';
@@ -14,6 +17,12 @@ export default async function handler(req, res) {
       return handleMe(req, res);
     case 'workspaces':
       return handleWorkspaces(req, res);
+    case 'scenarios':
+      return handleScenarios(req, res);
+    case 'dependencies':
+      return handleDependencies(req, res);
+    case 'import':
+      return handleImport(req, res);
     case 'cycles':
       return handleCycles(req, res);
     case 'policy':

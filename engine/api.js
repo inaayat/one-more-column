@@ -41,6 +41,13 @@ export const cyclesApi = {
     }),
 };
 
+export const scenariosApi = {
+  list: (token, cycleId) =>
+    apiFetch(`/api/omc-scenarios?cycle=${encodeURIComponent(cycleId)}`, { token }),
+  create: (token, body) =>
+    apiFetch('/api/omc-scenarios', { method: 'POST', body, token }),
+};
+
 export const policyApi = {
   get: (token, cycleId) => apiFetch(`/api/omc-policy?cycle=${encodeURIComponent(cycleId)}`, { token }),
   update: (token, cycleId, config) =>
@@ -82,6 +89,27 @@ export const planItemsApi = {
   create: (token, body) => apiFetch('/api/omc-plan-items', { method: 'POST', body, token }),
   patch: (token, plan_items) =>
     apiFetch('/api/omc-plan-items', { method: 'PATCH', body: { plan_items }, token }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-plan-items?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+};
+
+export const dependenciesApi = {
+  list: (token, { cycle, scenario } = {}) => {
+    const params = new URLSearchParams({ cycle });
+    if (scenario) params.set('scenario', scenario);
+    return apiFetch(`/api/omc-dependencies?${params}`, { token });
+  },
+  create: (token, body) => apiFetch('/api/omc-dependencies', { method: 'POST', body, token }),
+  patch: (token, dependencies) =>
+    apiFetch('/api/omc-dependencies', { method: 'PATCH', body: { dependencies }, token }),
+  delete: (token, id) =>
+    apiFetch(`/api/omc-dependencies?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+};
+
+export const importApi = {
+  preview: (token, body) => apiFetch('/api/omc-import', { method: 'POST', body, token }),
+  commit: (token, body) =>
+    apiFetch('/api/omc-import', { method: 'POST', body: { ...body, confirm: true }, token }),
 };
 
 export const capacityApi = {

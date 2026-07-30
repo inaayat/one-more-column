@@ -3,14 +3,23 @@ import {
   meApi,
   workspacesApi,
   cyclesApi,
+  scenariosApi,
   policyApi,
   resourcesApi,
   planItemsApi,
+  dependenciesApi,
+  importApi,
   capacityApi,
 } from './api.js';
+import {
+  scenarioOptions,
+  renderPlanView,
+  renderDependenciesView,
+} from './views.js';
 
 const APP_PATH = '/one-more-column/';
 const WORKSPACE_STORAGE_KEY = 'omc_active_workspace_id';
+const SCENARIO_STORAGE_KEY = 'omc_active_scenario_id';
 
 const state = {
   auth: null,
@@ -20,12 +29,16 @@ const state = {
   activeWorkspaceId: null,
   cycles: [],
   activeCycleId: null,
+  scenarios: [],
+  activeScenarioId: null,
   resources: [],
   teams: [],
   policy: null,
   capacity: null,
   planItems: [],
-  defaultScenarioId: null,
+  dependencies: [],
+  readiness: [],
+  importPreview: null,
 };
 
 function escapeHtml(value) {
@@ -77,6 +90,8 @@ function workspaceOptions(selectedId) {
 function renderShell({ body, activeNav = 'home' }) {
   const navItems = [
     { id: 'home', label: 'Home' },
+    { id: 'plan', label: 'Plan' },
+    { id: 'dependencies', label: 'Dependencies' },
     { id: 'capacity', label: 'Capacity' },
     { id: 'settings', label: 'Settings' },
   ];
@@ -162,7 +177,7 @@ function renderHome() {
     body: `
       <div class="token-banner valid">
         <span aria-hidden="true">✓</span>
-        <div><strong>H1.5 ready.</strong> Workspaces isolate teams, resources, and cycles. FY26 → FY27 is a new cycle in the same workspace.</div>
+        <div><strong>H2 + C2 ready.</strong> Plan Builder, scenarios, CSV import, and dependency/readiness tracking are live.</div>
       </div>
       <section class="panel">
         <h1 class="omc-title">Welcome back</h1>
@@ -232,6 +247,7 @@ function renderCapacity() {
           </div>
           <div class="btn-row">
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
+            <select id="scenario-select" class="field-input">${scenarioOptions(state.scenarios, state.activeScenarioId)}</select>
             <select id="cap-mode" class="field-input">
               <option value="due"${grid.mode === 'due' ? ' selected' : ''}>Due week</option>
               <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread</option>
@@ -423,6 +439,30 @@ function renderSettings() {
   });
 }
 
+function renderPlan() {
+  return renderShell({
+    activeNav: 'plan',
+    body: renderPlanView({
+      state,
+      escapeHtml,
+      cycleOptions,
+      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
+    }),
+  });
+}
+
+function renderDependencies() {
+  return renderShell({
+    activeNav: 'dependencies',
+    body: renderDependenciesView({
+      state,
+      escapeHtml,
+      cycleOptions,
+      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
+    }),
+  });
+}
+
 function formatWeekLabel(isoDate) {
   const d = new Date(`${isoDate}T00:00:00.000Z`);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
@@ -451,6 +491,8 @@ async function loadCoreData() {
     state.teams = [];
     state.policy = null;
     state.planItems = [];
+    state.scenarios = [];
+    state.activeScenarioId = null;
     state.activeCycleId = null;
     return;
   }
@@ -465,21 +507,52 @@ async function loadCoreData() {
 
   if (state.activeCycleId && !cycles.some((c) => c.id === state.activeCycleId)) {
     state.activeCycleId = null;
-    state.defaultScenarioId = null;
+    state.activeScenarioId = null;
   }
   if (!state.activeCycleId && cycles.length) {
     state.activeCycleId = cycles[0].id;
   }
   if (state.activeCycleId) {
-    const [{ policy }, { plan_items }] = await Promise.all([
-      policyApi.get(token, state.activeCycleId),
-      planItemsApi.list(token, { cycle: state.activeCycleId }),
-    ]);
+    const { policy } = await policyApi.get(token, state.activeCycleId);
     state.policy = policy;
+    await loadScenarioData();
+  }
+}
+
+async function loadScenarioData() {
+  const token = state.token;
+  if (!state.activeCycleId) return;
+
+  const { scenarios } = await scenariosApi.list(token, state.activeCycleId);
+  state.scenarios = scenarios;
+
+  const stored = localStorage.getItem(SCENARIO_STORAGE_KEY);
+  if (stored && scenarios.some((s) => s.id === stored)) {
+    state.activeScenarioId = stored;
+  } else if (state.activeScenarioId && scenarios.some((s) => s.id === state.activeScenarioId)) {
+    // keep current
+  } else if (scenarios.length) {
+    const active = scenarios.find((s) => s.status === 'active') || scenarios[0];
+    state.activeScenarioId = active.id;
+    localStorage.setItem(SCENARIO_STORAGE_KEY, active.id);
+  } else {
+    state.activeScenarioId = null;
+  }
+
+  if (state.activeScenarioId) {
+    const { plan_items } = await planItemsApi.list(token, { scenario: state.activeScenarioId });
     state.planItems = plan_items;
-    if (!state.defaultScenarioId && plan_items[0]?.scenario_id) {
-      state.defaultScenarioId = plan_items[0].scenario_id;
-    }
+  } else {
+    state.planItems = [];
+  }
+
+  if (currentRoute() === 'dependencies' && state.activeCycleId && state.activeScenarioId) {
+    const { dependencies, readiness } = await dependenciesApi.list(token, {
+      cycle: state.activeCycleId,
+      scenario: state.activeScenarioId,
+    });
+    state.dependencies = dependencies;
+    state.readiness = readiness;
   }
 }
 
@@ -490,7 +563,32 @@ async function loadCapacity(mode = 'due') {
   }
   state.capacity = await capacityApi.get(state.token, {
     cycle: state.activeCycleId,
+    scenario: state.activeScenarioId || undefined,
     mode,
+  });
+}
+
+function wireCycleScenarioEvents() {
+  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
+    state.activeCycleId = e.target.value || null;
+    state.activeScenarioId = null;
+    await refreshView();
+  });
+
+  document.getElementById('scenario-select')?.addEventListener('change', async (e) => {
+    state.activeScenarioId = e.target.value || null;
+    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
+    await loadScenarioData();
+    if (currentRoute() === 'capacity') await loadCapacity(document.getElementById('cap-mode')?.value || 'due');
+    if (currentRoute() === 'dependencies') {
+      const { dependencies, readiness } = await dependenciesApi.list(state.token, {
+        cycle: state.activeCycleId,
+        scenario: state.activeScenarioId,
+      });
+      state.dependencies = dependencies;
+      state.readiness = readiness;
+    }
+    render();
   });
 }
 
@@ -499,7 +597,7 @@ function wireWorkspaceEvents() {
     if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
     state.activeWorkspaceId = workspaceId;
     state.activeCycleId = null;
-    state.defaultScenarioId = null;
+    state.activeScenarioId = null;
     state.capacity = null;
     persistActiveWorkspace();
     await refreshView();
@@ -534,12 +632,13 @@ function wireSettingsEvents() {
       end_date: document.getElementById('new-cycle-end')?.value || null,
     });
     state.activeCycleId = result.cycle.id;
-    state.defaultScenarioId = result.default_scenario_id;
+    state.activeScenarioId = result.default_scenario_id;
     await refreshView();
   });
 
   document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
     state.activeCycleId = e.target.value || null;
+    state.activeScenarioId = null;
     await refreshView();
   });
 
@@ -587,15 +686,10 @@ function wireSettingsEvents() {
     if (!title) return;
     const assigneeSelect = document.getElementById('new-task-assignees');
     const assignee_ids = [...assigneeSelect.selectedOptions].map((o) => o.value);
-    let scenarioId = state.defaultScenarioId;
-    if (!scenarioId) {
-      const cap = await capacityApi.get(state.token, { cycle: state.activeCycleId });
-      scenarioId = cap.scenario?.id;
-      state.defaultScenarioId = scenarioId;
-    }
+    if (!state.activeScenarioId) await loadScenarioData();
     await planItemsApi.create(state.token, {
       cycle_id: state.activeCycleId,
-      scenario_id: scenarioId,
+      scenario_id: state.activeScenarioId,
       title,
       work_hours: Number(document.getElementById('new-task-hours')?.value || 0),
       due_week: document.getElementById('new-task-due')?.value || null,
@@ -605,13 +699,141 @@ function wireSettingsEvents() {
   });
 }
 
+function wirePlanEvents() {
+  wireWorkspaceEvents();
+  wireCycleScenarioEvents();
+
+  document.getElementById('add-plan-item')?.addEventListener('click', async () => {
+    if (!state.activeCycleId || !state.activeScenarioId) return;
+    const title = document.getElementById('new-item-title')?.value?.trim();
+    if (!title) return;
+    await planItemsApi.create(state.token, {
+      cycle_id: state.activeCycleId,
+      scenario_id: state.activeScenarioId,
+      title,
+      phase: document.getElementById('new-item-phase')?.value?.trim() || null,
+      work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
+      due_week: document.getElementById('new-item-due')?.value || null,
+    });
+    await loadScenarioData();
+    render();
+  });
+
+  document.getElementById('save-plan-items')?.addEventListener('click', async () => {
+    const rows = [...document.querySelectorAll('#plan-items-table tbody tr[data-id]')];
+    const plan_items = rows.map((row) => ({
+      id: row.dataset.id,
+      title: row.querySelector('[data-field="title"]')?.value,
+      phase: row.querySelector('[data-field="phase"]')?.value || null,
+      work_hours: Number(row.querySelector('[data-field="work_hours"]')?.value || 0),
+      review_hours: Number(row.querySelector('[data-field="review_hours"]')?.value || 0),
+      due_week: row.querySelector('[data-field="due_week"]')?.value || null,
+    }));
+    await planItemsApi.patch(state.token, plan_items);
+    await loadScenarioData();
+    render();
+  });
+
+  document.querySelectorAll('.btn-delete-item').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.closest('tr')?.dataset?.id;
+      if (!id) return;
+      await planItemsApi.delete(state.token, id);
+      await loadScenarioData();
+      render();
+    });
+  });
+
+  document.getElementById('create-scenario')?.addEventListener('click', async () => {
+    const name = prompt('Scenario name (e.g. Draft v2):');
+    if (!name || !state.activeCycleId) return;
+    const clone = state.activeScenarioId
+      ? confirm('Clone plan items from current scenario?')
+      : false;
+    await scenariosApi.create(state.token, {
+      cycle_id: state.activeCycleId,
+      name,
+      clone_from_scenario_id: clone ? state.activeScenarioId : undefined,
+    });
+    await loadScenarioData();
+    render();
+  });
+
+  document.getElementById('preview-import')?.addEventListener('click', async () => {
+    const csv_text = document.getElementById('import-csv')?.value;
+    if (!csv_text || !state.activeCycleId || !state.activeScenarioId) return;
+    state.importPreview = await importApi.preview(state.token, {
+      cycle_id: state.activeCycleId,
+      scenario_id: state.activeScenarioId,
+      csv_text,
+    });
+    render();
+  });
+
+  document.getElementById('confirm-import')?.addEventListener('click', async () => {
+    const csv_text = document.getElementById('import-csv')?.value;
+    if (!csv_text) return;
+    await importApi.commit(state.token, {
+      cycle_id: state.activeCycleId,
+      scenario_id: state.activeScenarioId,
+      csv_text,
+    });
+    state.importPreview = null;
+    await loadScenarioData();
+    render();
+  });
+
+  document.getElementById('cancel-import')?.addEventListener('click', () => {
+    state.importPreview = null;
+    render();
+  });
+}
+
+function wireDependencyEvents() {
+  wireWorkspaceEvents();
+  wireCycleScenarioEvents();
+
+  document.getElementById('add-dependency')?.addEventListener('click', async () => {
+    if (!state.activeCycleId) return;
+    const toId = document.getElementById('new-dep-to')?.value;
+    if (!toId) return;
+    const fromId = document.getElementById('new-dep-from')?.value || null;
+    await dependenciesApi.create(state.token, {
+      cycle_id: state.activeCycleId,
+      to_plan_item_id: toId,
+      from_plan_item_id: fromId,
+      dep_type: document.getElementById('new-dep-type')?.value,
+      label: document.getElementById('new-dep-label')?.value?.trim() || null,
+    });
+    await loadScenarioData();
+    render();
+  });
+
+  document.getElementById('save-dependencies')?.addEventListener('click', async () => {
+    const rows = [...document.querySelectorAll('#dependencies-table tbody tr[data-id]')];
+    const dependencies = rows.map((row) => ({
+      id: row.dataset.id,
+      status: row.querySelector('[data-field="status"]')?.value,
+    }));
+    await dependenciesApi.patch(state.token, dependencies);
+    await loadScenarioData();
+    render();
+  });
+
+  document.querySelectorAll('.btn-delete-dep').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.closest('tr')?.dataset?.id;
+      if (!id) return;
+      await dependenciesApi.delete(state.token, id);
+      await loadScenarioData();
+      render();
+    });
+  });
+}
+
 function wireCapacityEvents() {
   wireWorkspaceEvents();
-
-  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
-    state.activeCycleId = e.target.value || null;
-    await refreshView();
-  });
+  wireCycleScenarioEvents();
   document.getElementById('cap-mode')?.addEventListener('change', async (e) => {
     await loadCapacity(e.target.value);
     render();
@@ -625,10 +847,12 @@ function wireCapacityEvents() {
 
 async function refreshView() {
   await loadCoreData();
-  if (currentRoute() === 'capacity') {
+  const route = currentRoute();
+  if (route === 'capacity') {
     const mode = document.getElementById('cap-mode')?.value || 'due';
     await loadCapacity(mode);
   }
+  if (route === 'dependencies') await loadScenarioData();
   render();
 }
 
@@ -636,15 +860,19 @@ function render() {
   const root = document.getElementById('app-root');
   const route = currentRoute();
   let html;
-  if (route === 'capacity') html = renderCapacity();
+  if (route === 'plan') html = renderPlan();
+  else if (route === 'dependencies') html = renderDependencies();
+  else if (route === 'capacity') html = renderCapacity();
   else if (route === 'settings') html = renderSettings();
   else html = renderHome();
   root.innerHTML = html;
   wireAuthLink(state.auth);
 
   if (route === 'settings') wireSettingsEvents();
+  else if (route === 'plan') wirePlanEvents();
+  else if (route === 'dependencies') wireDependencyEvents();
+  else if (route === 'capacity') wireCapacityEvents();
   else wireWorkspaceEvents();
-  if (route === 'capacity') wireCapacityEvents();
 }
 
 async function boot() {
@@ -669,11 +897,15 @@ async function boot() {
     await loadCoreData();
 
     window.addEventListener('hashchange', async () => {
-      if (currentRoute() === 'capacity') await loadCapacity('due');
+      const route = currentRoute();
+      if (route === 'capacity') await loadCapacity('due');
+      if (route === 'dependencies') await loadScenarioData();
       render();
     });
 
-    if (currentRoute() === 'capacity') await loadCapacity('due');
+    const route = currentRoute();
+    if (route === 'capacity') await loadCapacity('due');
+    if (route === 'dependencies') await loadScenarioData();
     render();
   } catch (err) {
     console.error(err);

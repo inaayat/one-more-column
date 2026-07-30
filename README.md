@@ -21,20 +21,26 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 
 ## Sequencing (short)
 
-1. **H0** — `inaayat.xyz/one-more-column/` skeleton + AMC-style Neon Auth  
-2. **C1–C3** — Capacity → dependencies → Plan Builder (**direct entry + optional file upload**)  
-3. **C4** — Export + in-app alerts (no external pull)  
-4. **P2** — External pull/publish (Jira, etc.) only after v1 is trusted  
-5. **P1** — Additional planning profiles  
+| Status | Phase | What |
+|---|---|---|
+| Done | **H0** | Skeleton + Neon Auth on inaayat.xyz |
+| Done | **H1** | Postgres SoR: resources, policies, plan items, capacity API |
+| Done | **H1.5** | Workspaces (isolated resource pools + cycles) |
+| Done | **H2** | Plan Builder UI, scenarios, CSV import |
+| Done | **C2** | Dependencies + readiness tracker (core) |
+| Next | **C1** | Capacity hardening (availability overlay, assumptions panel) |
+| Next | **H3 / C4** | Export + in-app alerts |
+| Later | **P2** | External pull/publish (Jira, etc.) |
+| Later | **P1** | Additional planning profiles |
 
-See [BUILD_PLAN.md](./BUILD_PLAN.md) §0A for the v1 input model and rewrite vs submodule tradeoffs.
+See [BUILD_PLAN.md](./BUILD_PLAN.md) for full detail.
 
 ## Local development
 
 ```bash
 git clone https://github.com/inaayat/one-more-column.git
 cd one-more-column
-git checkout cursor/h15-workspaces-f084   # or main after H1.5 merge
+git checkout main
 
 npm install
 cp .env.example .env
