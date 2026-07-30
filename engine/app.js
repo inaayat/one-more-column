@@ -20,7 +20,6 @@ import {
   renderHomeView,
   renderSetupProgressBanner,
   setupSectionClass,
-  renderPlanningCta,
   renderPlannerView,
   renderDependenciesView,
   renderAlertsView,
@@ -58,6 +57,7 @@ const state = {
   activeTeamFilter: '',
   capacityGranularity: 'week',
   drift: null,
+  setupDraftPeople: [],
 };
 
 function escapeHtml(value) {
@@ -290,6 +290,134 @@ function renderCapacity() {
   });
 }
 
+function collectPersonFromForm() {
+  return {
+    name: document.getElementById('new-resource-name')?.value?.trim() || '',
+    team: document.getElementById('new-resource-team')?.value?.trim() || null,
+    weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
+    pto_start: document.getElementById('new-resource-pto-start')?.value || null,
+    pto_end: document.getElementById('new-resource-pto-end')?.value || null,
+    pto_hours: document.getElementById('new-resource-pto-hours')?.value || null,
+  };
+}
+
+function clearPersonForm() {
+  for (const id of [
+    'new-resource-name',
+    'new-resource-team',
+    'new-resource-pto-start',
+    'new-resource-pto-end',
+    'new-resource-pto-hours',
+  ]) {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  }
+  const hours = document.getElementById('new-resource-hours');
+  if (hours) hours.value = '32';
+}
+
+function renderSetupSubmitBar(progress) {
+  const label = progress.planningReady && !state.setupDraftPeople.length
+    ? 'Continue to Planner →'
+    : 'Create the plan →';
+  return `
+    <div class="setup-submit-bar panel">
+      <div>
+        <h2 class="omc-section-title">Ready?</h2>
+        <p class="omc-lead">Fill in team area, time period, and anyone on the team — then create everything at once. Press <strong>Enter</strong> or click below.</p>
+      </div>
+      <button type="submit" class="btn btn-refresh-solid setup-submit-btn">${label}</button>
+    </div>
+  `;
+}
+
+async function submitSetupPlan() {
+  const newWsName = document.getElementById('new-workspace-name')?.value?.trim();
+  const wsSelect = document.getElementById('workspace-select-settings')?.value;
+  const newCycleName = document.getElementById('new-cycle-name')?.value?.trim();
+  const cycleSelect = document.getElementById('cycle-select')?.value;
+
+  const people = [...state.setupDraftPeople];
+  const current = collectPersonFromForm();
+  if (current.name) people.push(current);
+
+  const progress = getSetupProgress(state);
+  if (
+    progress.planningReady
+    && !newWsName
+    && !newCycleName
+    && !people.length
+  ) {
+    await refreshView();
+    navigate('planner');
+    return;
+  }
+
+  let workspaceId = newWsName ? null : wsSelect || state.activeWorkspaceId;
+  if (newWsName) {
+    const profile = document.getElementById('new-workspace-profile')?.value?.trim() || 'default';
+    const { workspace } = await workspacesApi.create(state.token, { name: newWsName, profile });
+    workspaceId = workspace.id;
+  }
+  if (!workspaceId) {
+    alert('Enter a team area name or pick an existing one.');
+    return;
+  }
+  state.activeWorkspaceId = workspaceId;
+  persistActiveWorkspace();
+
+  let cycleId = newCycleName ? null : cycleSelect || state.activeCycleId;
+  if (newCycleName) {
+    const result = await cyclesApi.create(state.token, workspaceId, {
+      name: newCycleName,
+      cycle_type: document.getElementById('new-cycle-type')?.value || 'annual',
+      start_date: document.getElementById('new-cycle-start')?.value || null,
+      end_date: document.getElementById('new-cycle-end')?.value || null,
+    });
+    cycleId = result.cycle.id;
+    state.activeScenarioId = result.default_scenario_id;
+  }
+  if (!cycleId) {
+    alert('Name this planning period or pick an existing one.');
+    return;
+  }
+  state.activeCycleId = cycleId;
+
+  for (const person of people) {
+    const { resource } = await resourcesApi.create(state.token, workspaceId, {
+      name: person.name,
+      team: person.team,
+      weekly_hours: person.weekly_hours,
+    });
+    if (resource?.id && person.pto_start && person.pto_end) {
+      await timeOffApi.create(state.token, workspaceId, {
+        resource_id: resource.id,
+        start_date: person.pto_start,
+        end_date: person.pto_end,
+        hours_per_day: person.pto_hours || null,
+        reason: 'PTO',
+      });
+    }
+  }
+
+  const rows = [...document.querySelectorAll('#resources-table tbody tr[data-id]')];
+  if (rows.length) {
+    const resources = rows.map((row) => ({
+      id: row.dataset.id,
+      name: row.querySelector('[data-field="name"]')?.value,
+      team: row.querySelector('[data-field="team"]')?.value || null,
+      active: row.querySelector('[data-field="active"]')?.checked,
+      weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
+    }));
+    await resourcesApi.patch(state.token, workspaceId, resources);
+  }
+
+  state.setupDraftPeople = [];
+  clearPersonForm();
+  await refreshView();
+  navigate('planner');
+}
+
 function formatPtoChip(entry, escapeHtml) {
   const start = String(entry.start_date).slice(0, 10);
   const end = String(entry.end_date).slice(0, 10);
@@ -300,6 +428,20 @@ function formatPtoChip(entry, escapeHtml) {
 function renderSettings() {
   const policy = state.policy?.config || {};
   const progress = getSetupProgress(state);
+  const draftRows = (state.setupDraftPeople || [])
+    .map(
+      (p, i) => `
+      <tr class="setup-draft-row" data-draft-idx="${i}">
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.team || '—')}</td>
+        <td>${p.weekly_hours ?? 32}h</td>
+        <td>${p.pto_start && p.pto_end ? `${escapeHtml(p.pto_start)} → ${escapeHtml(p.pto_end)}` : '—'}</td>
+        <td><span class="badge">Pending</span></td>
+        <td><button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}">×</button></td>
+      </tr>`,
+    )
+    .join('');
+
   const resourceRows = state.resources
     .map(
       (r) => `
@@ -317,6 +459,7 @@ function renderSettings() {
   return renderShell({
     activeNav: 'settings',
     body: `
+      <form id="setup-plan-form" class="setup-plan-form">
       <div class="setup-primary">
       ${renderSetupProgressBanner(state)}
       <div class="setup-steps-row">
@@ -337,9 +480,6 @@ function renderSettings() {
             <span class="field-label">Type (optional)</span>
             <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" title="Leave as default unless you were told otherwise" />
           </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create team area</button>
-          </div>
         </div>
         </div>
         ${state.workspaces.length > 1 && state.activeWorkspaceId ? `
@@ -378,9 +518,6 @@ function renderSettings() {
             <span class="field-label">Ends</span>
             <input id="new-cycle-end" class="field-input" type="date" />
           </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create this period</button>
-          </div>
         </div>
         </div>
         ${state.activeCycleId ? `
@@ -422,7 +559,7 @@ function renderSettings() {
             <input id="new-resource-pto-hours" class="field-input" type="number" step="0.5" />
           </label>
           <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add person</button>
+            <button type="button" class="btn btn-ghost" id="add-to-team-list">+ Add to team list</button>
           </div>
         </div>
         ${state.resources.length ? `
@@ -456,15 +593,16 @@ function renderSettings() {
         <div class="setup-table-scroll setup-people-table">
         <table class="data-table" id="resources-table">
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
-          <tbody>${resourceRows || '<tr><td colspan="6">No one added yet — use the form above.</td></tr>'}</tbody>
+          <tbody>${draftRows}${resourceRows || (draftRows ? '' : '<tr><td colspan="6">Add people above — they will be created when you click Create the plan.</td></tr>')}</tbody>
         </table>
         </div>
         </div>
       </section>
       </div>
 
-      ${renderPlanningCta(state)}
+      ${renderSetupSubmitBar(progress)}
       </div>
+      </form>
 
       <section class="setup-advanced" aria-labelledby="setup-advanced-title">
         <header class="setup-advanced-head">
@@ -745,21 +883,34 @@ function wireWorkspaceEvents() {
 
   document.getElementById('workspace-select')?.addEventListener('change', (e) => onSwitch(e.target.value));
   document.getElementById('workspace-select-settings')?.addEventListener('change', (e) => onSwitch(e.target.value));
-
-  document.getElementById('create-workspace')?.addEventListener('click', async () => {
-    const name = document.getElementById('new-workspace-name')?.value?.trim();
-    if (!name) return;
-    const profile = document.getElementById('new-workspace-profile')?.value?.trim() || 'default';
-    const { workspace } = await workspacesApi.create(state.token, { name, profile });
-    state.activeWorkspaceId = workspace.id;
-    state.activeCycleId = null;
-    persistActiveWorkspace();
-    await refreshView();
-  });
 }
 
 function wireSettingsEvents() {
   wireWorkspaceEvents();
+
+  document.getElementById('setup-plan-form')?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await submitSetupPlan();
+    } catch (err) {
+      alert(err.message || 'Could not create plan.');
+    }
+  });
+
+  document.getElementById('add-to-team-list')?.addEventListener('click', () => {
+    const person = collectPersonFromForm();
+    if (!person.name) return;
+    state.setupDraftPeople.push(person);
+    clearPersonForm();
+    render();
+  });
+
+  document.querySelectorAll('.btn-remove-draft').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      state.setupDraftPeople.splice(Number(btn.dataset.idx), 1);
+      render();
+    });
+  });
 
   document.getElementById('delete-workspace')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId || state.workspaces.length <= 1) return;
@@ -781,22 +932,6 @@ function wireSettingsEvents() {
     state.activeCycleId = null;
     state.activeScenarioId = null;
     await refreshView();
-  });
-
-  document.getElementById('create-cycle')?.addEventListener('click', async () => {
-    if (!state.activeWorkspaceId) return;
-    const name = document.getElementById('new-cycle-name')?.value?.trim();
-    if (!name) return;
-    const result = await cyclesApi.create(state.token, state.activeWorkspaceId, {
-      name,
-      cycle_type: document.getElementById('new-cycle-type')?.value || 'annual',
-      start_date: document.getElementById('new-cycle-start')?.value || null,
-      end_date: document.getElementById('new-cycle-end')?.value || null,
-    });
-    state.activeCycleId = result.cycle.id;
-    state.activeScenarioId = result.default_scenario_id;
-    await refreshView();
-    if (getSetupProgress(state).planningReady) navigate('planner');
   });
 
   document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
@@ -856,28 +991,6 @@ function wireSettingsEvents() {
       await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
       await refreshView();
     });
-  });
-
-  document.getElementById('add-resource')?.addEventListener('click', async () => {
-    const name = document.getElementById('new-resource-name')?.value?.trim();
-    if (!name) return;
-    const { resource } = await resourcesApi.create(state.token, state.activeWorkspaceId, {
-      name,
-      team: document.getElementById('new-resource-team')?.value?.trim() || null,
-      weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
-    });
-    const ptoStart = document.getElementById('new-resource-pto-start')?.value;
-    const ptoEnd = document.getElementById('new-resource-pto-end')?.value;
-    if (resource?.id && ptoStart && ptoEnd) {
-      await timeOffApi.create(state.token, state.activeWorkspaceId, {
-        resource_id: resource.id,
-        start_date: ptoStart,
-        end_date: ptoEnd,
-        hours_per_day: document.getElementById('new-resource-pto-hours')?.value || null,
-        reason: 'PTO',
-      });
-    }
-    await refreshView();
   });
 
   document.getElementById('save-resources')?.addEventListener('click', async () => {

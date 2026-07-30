@@ -470,6 +470,32 @@ body {
   align-items: stretch;
 }
 
+.setup-plan-form {
+  margin: 0;
+}
+
+.setup-submit-bar {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  border: 2px solid var(--color-accent-mint);
+  background: var(--color-accent-soft);
+}
+
+.setup-submit-btn {
+  font-size: 15px;
+  padding: 12px 24px;
+  white-space: nowrap;
+}
+
+.setup-draft-row td {
+  background: #fffbeb;
+  font-style: italic;
+}
+
 .setup-primary {
   margin-bottom: 8px;
 }
