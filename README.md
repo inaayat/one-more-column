@@ -28,3 +28,28 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 5. **P1** — Additional planning profiles  
 
 See [BUILD_PLAN.md](./BUILD_PLAN.md) §0A for the v1 input model and rewrite vs submodule tradeoffs.
+
+## Local development
+
+```bash
+git clone https://github.com/inaayat/one-more-column.git
+cd one-more-column
+git checkout cursor/h15-workspaces-f084   # or main after H1.5 merge
+
+npm install
+cp .env.example .env
+# Edit .env — use the same NEON_AUTH_BASE_URL and DATABASE_URL as inaayat.xyz
+
+npm run dev
+```
+
+Open **http://localhost:3000/one-more-column/**
+
+Sign in via [inaayat.xyz/account.html](https://inaayat.xyz/account.html?next=http://localhost:3000/one-more-column/) (add `localhost:3000` to Neon Auth trusted domains if the session does not carry over).
+
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Static UI + `/api/omc-*` + local `/api/auth-config` |
+| `npm test` | Engine unit tests |
+
+**Note:** Production is served through inaayat.xyz rewrites; locally the child project exposes its own `auth-config` so you can develop without running the main site.
