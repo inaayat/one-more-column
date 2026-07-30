@@ -21,14 +21,14 @@ import {
   renderHomeView,
   renderSetupProgressBanner,
   setupSectionClass,
-  renderPlanView,
+  renderPlannerView,
   renderDependenciesView,
   renderAlertsView,
   assumptionsBlock,
   teamTabs,
   capacityCellClass,
 } from './views.js';
-import { getSetupProgress, getInitialRoute, resolveRoute, navItems } from './setup.js';
+import { getSetupProgress, getInitialRoute, resolveRoute, navItems, normalizeRoute } from './setup.js';
 
 const APP_PATH = '/one-more-column/';
 const WORKSPACE_STORAGE_KEY = 'omc_active_workspace_id';
@@ -57,6 +57,7 @@ const state = {
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
   activeTeamFilter: '',
+  capacityGranularity: 'week',
   drift: null,
 };
 
@@ -76,8 +77,9 @@ function initials(name, email) {
 }
 
 function currentRoute() {
-  const hash = location.hash.replace(/^#\/?/, '') || 'home';
-  return hash.split('?')[0];
+  const hash = location.hash.replace(/^#\/?/, '') || '';
+  const route = hash.split('?')[0] || 'planner';
+  return normalizeRoute(route);
 }
 
 function navigate(route) {
@@ -212,8 +214,9 @@ function renderCapacity() {
     });
   }
 
-  const weekHeaders = grid.weeks
-    .map((w) => `<th class="cap-week">${escapeHtml(formatWeekLabel(w))}</th>`)
+  const granularity = grid.granularity || state.capacityGranularity || 'week';
+  const periodHeaders = grid.weeks
+    .map((w) => `<th class="cap-week">${escapeHtml(formatPeriodLabel(w, granularity))}</th>`)
     .join('');
 
   const rows = grid.rows
@@ -241,11 +244,15 @@ function renderCapacity() {
         <div class="panel-head">
           <div>
             <h1 class="omc-title">Capacity</h1>
-            <p class="omc-lead">${escapeHtml(grid.cycle?.name || '')} · ${escapeHtml(grid.mode)} mode · ${grid.rows.length} people</p>
+            <p class="omc-lead">${escapeHtml(grid.cycle?.name || '')} · ${granularity === 'month' ? 'Month over month' : 'Week by week'} · ${escapeHtml(grid.mode)} mode</p>
           </div>
           <div class="btn-row">
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
             <select id="scenario-select" class="field-input">${scenarioOptions(state.scenarios, state.activeScenarioId)}</select>
+            <div class="view-toggle view-toggle-sm" role="group" aria-label="Time granularity">
+              <button type="button" class="view-toggle-btn${granularity === 'week' ? ' active' : ''}" id="cap-granularity-week">Weeks</button>
+              <button type="button" class="view-toggle-btn${granularity === 'month' ? ' active' : ''}" id="cap-granularity-month">Months</button>
+            </div>
             <select id="cap-mode" class="field-input">
               <option value="due"${grid.mode === 'due' ? ' selected' : ''}>Due week</option>
               <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread</option>
@@ -264,7 +271,7 @@ function renderCapacity() {
         </div>
         <div class="cap-scroll">
           <table class="cap-table">
-            <thead><tr><th class="cap-person">Person</th>${weekHeaders}</tr></thead>
+            <thead><tr><th class="cap-person">Person</th>${periodHeaders}</tr></thead>
             <tbody>${rows || '<tr><td colspan="99">No active resources. Add people in Settings.</td></tr>'}</tbody>
           </table>
         </div>
@@ -387,7 +394,7 @@ function renderSettings() {
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
           <tbody>${resourceRows || '<tr><td colspan="4">No resources yet.</td></tr>'}</tbody>
         </table>
-        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/plan">Continue to Plan →</a></div>` : ''}
+        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Continue to Planner →</a></div>` : ''}
       </section>
 
       <section class="panel" style="margin-bottom:16px">
@@ -507,10 +514,10 @@ function renderSettings() {
   });
 }
 
-function renderPlan() {
+function renderPlanner() {
   return renderShell({
-    activeNav: 'plan',
-    body: renderPlanView({
+    activeNav: 'planner',
+    body: renderPlannerView({
       state,
       escapeHtml,
       cycleOptions,
@@ -534,6 +541,18 @@ function renderDependencies() {
 function formatWeekLabel(isoDate) {
   const d = new Date(`${isoDate}T00:00:00.000Z`);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function formatPeriodLabel(key, granularity = 'week') {
+  if (granularity === 'month' && /^\d{4}-\d{2}$/.test(key)) {
+    const [year, month] = key.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('en-US', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+  return formatWeekLabel(key);
 }
 
 async function loadWorkspaces() {
@@ -587,6 +606,20 @@ async function loadCoreData() {
   }
 }
 
+async function loadPlannerData() {
+  if (!state.activeCycleId || !state.activeScenarioId) {
+    state.dependencies = [];
+    state.readiness = [];
+    return;
+  }
+  const { dependencies, readiness } = await dependenciesApi.list(state.token, {
+    cycle: state.activeCycleId,
+    scenario: state.activeScenarioId,
+  });
+  state.dependencies = dependencies;
+  state.readiness = readiness;
+}
+
 async function loadScenarioData() {
   const token = state.token;
   if (!state.activeCycleId) return;
@@ -610,21 +643,15 @@ async function loadScenarioData() {
   if (state.activeScenarioId) {
     const { plan_items } = await planItemsApi.list(token, { scenario: state.activeScenarioId });
     state.planItems = plan_items;
+    await loadPlannerData();
   } else {
     state.planItems = [];
-  }
-
-  if (currentRoute() === 'dependencies' && state.activeCycleId && state.activeScenarioId) {
-    const { dependencies, readiness } = await dependenciesApi.list(token, {
-      cycle: state.activeCycleId,
-      scenario: state.activeScenarioId,
-    });
-    state.dependencies = dependencies;
-    state.readiness = readiness;
+    state.dependencies = [];
+    state.readiness = [];
   }
 }
 
-async function loadCapacity(mode = 'due') {
+async function loadCapacity(mode = 'due', granularity = state.capacityGranularity) {
   if (!state.activeCycleId) {
     state.capacity = null;
     return;
@@ -634,8 +661,10 @@ async function loadCapacity(mode = 'due') {
     scenario: state.activeScenarioId || undefined,
     team: state.activeTeamFilter || undefined,
     mode,
+    granularity,
   });
   state.assumptions = state.capacity?.assumptions || state.assumptions;
+  state.capacityGranularity = granularity;
 }
 
 async function loadAlerts() {
@@ -689,14 +718,11 @@ function wireCycleScenarioEvents() {
     state.activeScenarioId = e.target.value || null;
     if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
     await loadScenarioData();
-    if (currentRoute() === 'capacity') await loadCapacity(document.getElementById('cap-mode')?.value || 'due');
-    if (currentRoute() === 'dependencies') {
-      const { dependencies, readiness } = await dependenciesApi.list(state.token, {
-        cycle: state.activeCycleId,
-        scenario: state.activeScenarioId,
-      });
-      state.dependencies = dependencies;
-      state.readiness = readiness;
+    if (currentRoute() === 'capacity') {
+      await loadCapacity(
+        document.getElementById('cap-mode')?.value || 'due',
+        state.capacityGranularity,
+      );
     }
     render();
   });
@@ -840,62 +866,99 @@ function wireSettingsEvents() {
   });
 }
 
-function wirePlanEvents() {
+function wirePlannerEvents() {
   wireWorkspaceEvents();
   wireCycleScenarioEvents();
+
+  async function switchScenarioMode(mode) {
+    if (!state.scenarios.length) return;
+    if (mode === 'live') {
+      const live = state.scenarios.find((s) => s.status === 'active');
+      if (live) state.activeScenarioId = live.id;
+    } else {
+      const draft = state.scenarios.find((s) => s.status === 'draft') || state.scenarios[0];
+      state.activeScenarioId = draft.id;
+    }
+    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
+    await loadScenarioData();
+    render();
+  }
+
+  document.getElementById('mode-draft')?.addEventListener('click', () => switchScenarioMode('draft'));
+  document.getElementById('mode-live')?.addEventListener('click', () => switchScenarioMode('live'));
+
+  document.getElementById('finalize-scenario')?.addEventListener('click', async () => {
+    if (!state.activeScenarioId) return;
+    await scenariosApi.patch(state.token, { id: state.activeScenarioId, status: 'active' });
+    await loadScenarioData();
+    render();
+  });
 
   document.getElementById('add-plan-item')?.addEventListener('click', async () => {
     if (!state.activeCycleId || !state.activeScenarioId) return;
     const title = document.getElementById('new-item-title')?.value?.trim();
     if (!title) return;
+    const days = document.getElementById('new-item-days')?.value;
     await planItemsApi.create(state.token, {
       cycle_id: state.activeCycleId,
       scenario_id: state.activeScenarioId,
       title,
-      phase: document.getElementById('new-item-phase')?.value?.trim() || null,
       work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
       due_week: document.getElementById('new-item-due')?.value || null,
+      attributes: days ? { duration_days: Number(days) } : {},
     });
     await loadScenarioData();
     render();
   });
 
-  document.getElementById('save-plan-items')?.addEventListener('click', async () => {
-    const rows = [...document.querySelectorAll('#plan-items-table tbody tr[data-id]')];
-    const plan_items = rows.map((row) => ({
-      id: row.dataset.id,
-      title: row.querySelector('[data-field="title"]')?.value,
-      phase: row.querySelector('[data-field="phase"]')?.value || null,
-      work_hours: Number(row.querySelector('[data-field="work_hours"]')?.value || 0),
-      review_hours: Number(row.querySelector('[data-field="review_hours"]')?.value || 0),
-      due_week: row.querySelector('[data-field="due_week"]')?.value || null,
-    }));
-    await planItemsApi.patch(state.token, plan_items);
-    await loadScenarioData();
-    render();
+  document.getElementById('save-planner')?.addEventListener('click', async () => {
+    await savePlannerGrid();
   });
 
-  document.querySelectorAll('.btn-delete-item').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.closest('tr')?.dataset?.id;
+  document.querySelectorAll('.planner-row').forEach((row) => {
+    row.querySelector('.btn-delete-item')?.addEventListener('click', async () => {
+      const id = row.dataset.id;
       if (!id) return;
       await planItemsApi.delete(state.token, id);
+      await loadScenarioData();
+      render();
+    });
+    row.querySelector('.btn-add-gate')?.addEventListener('click', async () => {
+      const toId = row.dataset.id;
+      if (!toId || !state.activeCycleId) return;
+      await dependenciesApi.create(state.token, {
+        cycle_id: state.activeCycleId,
+        to_plan_item_id: toId,
+        dep_type: 'input_ready',
+        label: 'New gate',
+      });
+      await loadScenarioData();
+      render();
+    });
+  });
+
+  document.querySelectorAll('.planner-subrow .btn-delete-dep').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      const id = e.target.closest('tr')?.dataset?.depId;
+      if (!id) return;
+      await dependenciesApi.delete(state.token, id);
       await loadScenarioData();
       render();
     });
   });
 
   document.getElementById('create-scenario')?.addEventListener('click', async () => {
-    const name = prompt('Scenario name (e.g. Draft v2):');
+    const name = prompt('Draft name (e.g. What-if v2):');
     if (!name || !state.activeCycleId) return;
-    const clone = state.activeScenarioId
-      ? confirm('Clone plan items from current scenario?')
-      : false;
-    await scenariosApi.create(state.token, {
+    const clone = state.activeScenarioId ? confirm('Copy rows from current view?') : false;
+    const { scenario } = await scenariosApi.create(state.token, {
       cycle_id: state.activeCycleId,
       name,
+      status: 'draft',
       clone_from_scenario_id: clone ? state.activeScenarioId : undefined,
     });
+    state.activeScenarioId = scenario.id;
+    localStorage.setItem(SCENARIO_STORAGE_KEY, scenario.id);
     await loadScenarioData();
     render();
   });
@@ -945,6 +1008,79 @@ function wirePlanEvents() {
     state.drift = data;
     alert(`Drift vs last import: +${data.added} / ~${data.modified} / -${data.removed}`);
   });
+}
+
+async function savePlannerGrid() {
+  const plan_items = [];
+  const depCreates = [];
+  const depPatches = [];
+
+  for (const row of document.querySelectorAll('.planner-row')) {
+    const id = row.dataset.id;
+    if (!id) continue;
+    const attrs = {};
+    const days = row.querySelector('[data-field="duration_days"]')?.value;
+    const start = row.querySelector('[data-field="start_date"]')?.value;
+    if (days) attrs.duration_days = Number(days);
+    if (start) attrs.start_date = start;
+
+    plan_items.push({
+      id,
+      title: row.querySelector('[data-field="title"]')?.value,
+      phase: row.querySelector('[data-field="phase"]')?.value || null,
+      work_hours: Number(row.querySelector('[data-field="work_hours"]')?.value || 0),
+      due_week: row.querySelector('[data-field="due_week"]')?.value || null,
+      attributes: attrs,
+    });
+
+    const depPayload = readDepFields(row);
+    if (depPayload) {
+      if (row.dataset.depId) {
+        depPatches.push({ id: row.dataset.depId, ...depPayload });
+      } else {
+        depCreates.push({ to_plan_item_id: id, ...depPayload });
+      }
+    }
+  }
+
+  for (const row of document.querySelectorAll('.planner-subrow')) {
+    const depPayload = readDepFields(row);
+    if (!depPayload || !row.dataset.depId) continue;
+    depPatches.push({ id: row.dataset.depId, ...depPayload });
+  }
+
+  if (plan_items.length) await planItemsApi.patch(state.token, plan_items);
+  for (const dep of depCreates) {
+    await dependenciesApi.create(state.token, {
+      cycle_id: state.activeCycleId,
+      to_plan_item_id: dep.to_plan_item_id,
+      from_plan_item_id: dep.from_plan_item_id,
+      dep_type: dep.dep_type,
+      label: dep.label,
+      status: dep.status,
+      meta: dep.meta,
+    });
+  }
+  if (depPatches.length) await dependenciesApi.patch(state.token, depPatches);
+
+  await loadScenarioData();
+  render();
+}
+
+function readDepFields(row) {
+  const label = row.querySelector('[data-field="label"]')?.value?.trim();
+  const fromId = row.querySelector('[data-field="from_plan_item_id"]')?.value || null;
+  const depDue = row.querySelector('[data-field="dep_due"]')?.value || null;
+  const depType = row.querySelector('[data-field="dep_type"]')?.value || 'input_ready';
+  const status = row.querySelector('[data-field="dep_status"]')?.value || 'open';
+  if (!label && !fromId && !depDue) return null;
+  return {
+    from_plan_item_id: fromId,
+    dep_type: depType,
+    label: label || null,
+    status,
+    meta: depDue ? { due_date: depDue } : {},
+  };
 }
 
 function wireAlertsEvents() {
@@ -1018,7 +1154,7 @@ function wireCapacityEvents() {
     tab.addEventListener('click', async () => {
       state.activeTeamFilter = tab.dataset.team || '';
       const mode = document.getElementById('cap-mode')?.value || 'due';
-      await loadCapacity(mode);
+      await loadCapacity(mode, state.capacityGranularity);
       render();
     });
   });
@@ -1032,12 +1168,22 @@ function wireCapacityEvents() {
   });
 
   document.getElementById('cap-mode')?.addEventListener('change', async (e) => {
-    await loadCapacity(e.target.value);
+    await loadCapacity(e.target.value, state.capacityGranularity);
+    render();
+  });
+  document.getElementById('cap-granularity-week')?.addEventListener('click', async () => {
+    const mode = document.getElementById('cap-mode')?.value || 'due';
+    await loadCapacity(mode, 'week');
+    render();
+  });
+  document.getElementById('cap-granularity-month')?.addEventListener('click', async () => {
+    const mode = document.getElementById('cap-mode')?.value || 'due';
+    await loadCapacity(mode, 'month');
     render();
   });
   document.getElementById('refresh-capacity')?.addEventListener('click', async () => {
     const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode);
+    await loadCapacity(mode, state.capacityGranularity);
     render();
   });
 }
@@ -1047,10 +1193,8 @@ async function refreshView() {
   const route = currentRoute();
   if (route === 'capacity') {
     const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode);
+    await loadCapacity(mode, state.capacityGranularity);
   }
-  if (route === 'dependencies') await loadScenarioData();
-  if (route === 'alerts') await loadAlerts();
   if (route === 'settings') await loadChangelog();
   if (state.activeCycleId) {
     const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
@@ -1069,22 +1213,18 @@ function render() {
   }
 
   let html;
-  if (route === 'plan') html = renderPlan();
-  else if (route === 'dependencies') html = renderDependencies();
-  else if (route === 'alerts') html = renderAlerts();
+  if (route === 'planner') html = renderPlanner();
   else if (route === 'capacity') html = renderCapacity();
   else if (route === 'settings') html = renderSettings();
-  else html = renderHome();
+  else html = renderPlanner();
   root.innerHTML = html;
   wireAuthLink(state.auth);
 
   if (route === 'settings') {
     wireSettingsEvents();
     scrollToSetupStep();
-  } else if (route === 'plan') wirePlanEvents();
-  else if (route === 'dependencies') wireDependencyEvents();
+  } else if (route === 'planner') wirePlannerEvents();
   else if (route === 'capacity') wireCapacityEvents();
-  else if (route === 'alerts') wireAlertsEvents();
   else wireWorkspaceEvents();
 }
 
@@ -1127,16 +1267,12 @@ async function boot() {
 
     window.addEventListener('hashchange', async () => {
       const route = currentRoute();
-      if (route === 'capacity') await loadCapacity('due');
-      if (route === 'dependencies') await loadScenarioData();
-      if (route === 'alerts') await loadAlerts();
+      if (route === 'capacity') await loadCapacity('due', state.capacityGranularity);
       render();
     });
 
     const route = currentRoute();
-    if (route === 'capacity') await loadCapacity('due');
-    if (route === 'dependencies') await loadScenarioData();
-    if (route === 'alerts') await loadAlerts();
+    if (route === 'capacity') await loadCapacity('due', state.capacityGranularity);
     if (state.activeCycleId) {
       const { assumptions } = await assumptionsApi.list(state.token, state.activeCycleId);
       state.assumptions = assumptions;
