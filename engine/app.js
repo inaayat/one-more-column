@@ -285,6 +285,13 @@ function renderCapacity() {
   });
 }
 
+function formatPtoChip(entry, escapeHtml) {
+  const start = String(entry.start_date).slice(0, 10);
+  const end = String(entry.end_date).slice(0, 10);
+  const hrs = entry.hours_per_day != null ? `${entry.hours_per_day}h/day` : 'full day';
+  return `<span class="pto-chip">${escapeHtml(start)} → ${escapeHtml(end)} (${escapeHtml(hrs)}) <button type="button" class="btn btn-ghost btn-sm btn-del-pto" data-id="${escapeHtml(entry.id)}" title="Remove PTO">×</button></span>`;
+}
+
 function renderSettings() {
   const policy = state.policy?.config || {};
   const progress = getSetupProgress(state);
@@ -295,6 +302,7 @@ function renderSettings() {
         <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
         <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Team" /></td>
         <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" placeholder="32" value="${r.profiles?.[0]?.weekly_hours ?? ''}" /></td>
+        <td class="pto-cell">${(r.time_off || []).map((t) => formatPtoChip(t, escapeHtml)).join('') || '<span class="omc-lead">—</span>'}</td>
         <td><label class="check-label"><input type="checkbox" data-field="active" ${r.active ? 'checked' : ''} /> Active</label></td>
       </tr>`,
     )
@@ -367,7 +375,7 @@ function renderSettings() {
           <h2 class="omc-section-title">3. Add your team</h2>
           <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
         </div>
-        <p class="omc-lead" style="margin-bottom:12px">Type each person’s name and how many hours per week they usually have for this work (32 is a common default). Add at least one person — then you can go to Planner.</p>
+        <p class="omc-lead" style="margin-bottom:12px">Add each person’s name, weekly hours, and any planned time off. PTO reduces their capacity automatically.</p>
         <div class="form-grid setup-form-grid" style="margin-bottom:12px">
           <label class="field">
             <span class="field-label">Name</span>
@@ -381,14 +389,54 @@ function renderSettings() {
             <span class="field-label">Hours per week</span>
             <input id="new-resource-hours" class="field-input" type="number" value="32" />
           </label>
+          <label class="field">
+            <span class="field-label">PTO starts (optional)</span>
+            <input id="new-resource-pto-start" class="field-input" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">PTO ends (optional)</span>
+            <input id="new-resource-pto-end" class="field-input" type="date" />
+          </label>
+          <label class="field">
+            <span class="field-label">PTO hours/day (blank = full)</span>
+            <input id="new-resource-pto-hours" class="field-input" type="number" step="0.5" />
+          </label>
           <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add</button>
+            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add person</button>
           </div>
         </div>
+        ${state.resources.length ? `
+        <details class="setup-pto-more">
+          <summary class="omc-lead">Add PTO for someone already listed</summary>
+          <div class="form-grid setup-form-grid" style="margin-top:10px">
+            <label class="field">
+              <span class="field-label">Person</span>
+              <select id="pto-resource" class="field-input">
+                ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label">Starts</span>
+              <input id="pto-start" class="field-input" type="date" />
+            </label>
+            <label class="field">
+              <span class="field-label">Ends</span>
+              <input id="pto-end" class="field-input" type="date" />
+            </label>
+            <label class="field">
+              <span class="field-label">Hours/day (blank = full)</span>
+              <input id="pto-hours" class="field-input" type="number" step="0.5" />
+            </label>
+            <div class="field" style="align-self:end">
+              <button type="button" class="btn btn-ghost" id="add-pto">Add PTO</button>
+            </div>
+          </div>
+        </details>
+        ` : ''}
         <div class="setup-table-scroll">
         <table class="data-table" id="resources-table">
-          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
-          <tbody>${resourceRows || '<tr><td colspan="4">No one added yet — use the form above.</td></tr>'}</tbody>
+          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th></tr></thead>
+          <tbody>${resourceRows || '<tr><td colspan="5">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
         </div>
         ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: Planner →</a></div>` : ''}
@@ -397,7 +445,7 @@ function renderSettings() {
 
       <p class="setup-optional-label omc-lead">Optional — you can skip these until later</p>
 
-      <div class="setup-optional-row">
+      <div class="setup-optional-row setup-optional-row-2">
       <section class="panel">
         <h2 class="omc-section-title">Planning rules</h2>
         <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings. Most people can leave these as-is.</p>
@@ -428,34 +476,6 @@ function renderSettings() {
           </label>
           <div class="field" style="align-self:end">
             <button type="button" class="btn btn-ghost" id="save-policy">Save policy</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel">
-        <h2 class="omc-section-title">Time off</h2>
-        <p class="omc-lead" style="margin-bottom:12px">Add vacation or PTO so capacity does not count those days.</p>
-        <div class="form-grid setup-form-grid">
-          <label class="field">
-            <span class="field-label">Person</span>
-            <select id="pto-resource" class="field-input">
-              ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
-            </select>
-          </label>
-          <label class="field">
-            <span class="field-label">Start</span>
-            <input id="pto-start" class="field-input" type="date" />
-          </label>
-          <label class="field">
-            <span class="field-label">End</span>
-            <input id="pto-end" class="field-input" type="date" />
-          </label>
-          <label class="field">
-            <span class="field-label">Hours/day (blank = full)</span>
-            <input id="pto-hours" class="field-input" type="number" step="0.5" />
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-pto">Add PTO</button>
           </div>
         </div>
       </section>
@@ -755,24 +775,45 @@ function wireSettingsEvents() {
 
   document.getElementById('add-pto')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId) return;
+    const start = document.getElementById('pto-start')?.value;
+    const end = document.getElementById('pto-end')?.value;
+    if (!start || !end) return;
     await timeOffApi.create(state.token, state.activeWorkspaceId, {
       resource_id: document.getElementById('pto-resource')?.value,
-      start_date: document.getElementById('pto-start')?.value,
-      end_date: document.getElementById('pto-end')?.value,
+      start_date: start,
+      end_date: end,
       hours_per_day: document.getElementById('pto-hours')?.value || null,
       reason: 'PTO',
     });
     await refreshView();
   });
 
+  document.querySelectorAll('.btn-del-pto').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await timeOffApi.delete(state.token, btn.dataset.id);
+      await refreshView();
+    });
+  });
+
   document.getElementById('add-resource')?.addEventListener('click', async () => {
     const name = document.getElementById('new-resource-name')?.value?.trim();
     if (!name) return;
-    await resourcesApi.create(state.token, state.activeWorkspaceId, {
+    const { resource } = await resourcesApi.create(state.token, state.activeWorkspaceId, {
       name,
       team: document.getElementById('new-resource-team')?.value?.trim() || null,
       weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
     });
+    const ptoStart = document.getElementById('new-resource-pto-start')?.value;
+    const ptoEnd = document.getElementById('new-resource-pto-end')?.value;
+    if (resource?.id && ptoStart && ptoEnd) {
+      await timeOffApi.create(state.token, state.activeWorkspaceId, {
+        resource_id: resource.id,
+        start_date: ptoStart,
+        end_date: ptoEnd,
+        hours_per_day: document.getElementById('new-resource-pto-hours')?.value || null,
+        reason: 'PTO',
+      });
+    }
     await refreshView();
   });
 

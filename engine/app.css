@@ -495,9 +495,44 @@ body {
   overflow-y: auto;
 }
 
+.setup-optional-row-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.setup-pto-more {
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.setup-pto-more summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+
+.pto-cell {
+  min-width: 120px;
+}
+
+.pto-chip {
+  display: block;
+  font-size: 10px;
+  line-height: 1.5;
+  margin-bottom: 4px;
+  color: var(--color-text-secondary);
+}
+
+.pto-chip .btn-sm {
+  padding: 0 4px;
+  font-size: 12px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
 @media (max-width: 1100px) {
   .setup-steps-row,
   .setup-optional-row,
+  .setup-optional-row-2,
   .setup-progress-steps {
     grid-template-columns: 1fr;
   }
