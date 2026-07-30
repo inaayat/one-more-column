@@ -306,7 +306,8 @@ function getActiveSetupMode(kind) {
   const btn = document.querySelector(`[data-setup-mode="${kind}"] .view-toggle-btn.active`);
   if (btn?.dataset.mode) return btn.dataset.mode;
   if (kind === 'workspace') return resolveSetupMode('workspace', state.workspaces.length > 0);
-  const wsMode = getActiveSetupMode('workspace');
+  const wsBtn = document.querySelector('[data-setup-mode="workspace"] .view-toggle-btn.active');
+  const wsMode = wsBtn?.dataset.mode || resolveSetupMode('workspace', state.workspaces.length > 0);
   return resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
 }
 
@@ -973,6 +974,21 @@ function wireSettingsEvents() {
     } catch (err) {
       alert(err.message || 'Could not create plan.');
     }
+  });
+
+  document.querySelectorAll('[data-setup-mode]').forEach((group) => {
+    const kind = group.dataset.setupMode;
+    group.querySelectorAll('.view-toggle-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.disabled) return;
+        state.setupUi = state.setupUi || { workspaceMode: null, cycleMode: null };
+        state.setupUi[`${kind}Mode`] = btn.dataset.mode;
+        if (kind === 'workspace' && btn.dataset.mode === 'new') {
+          state.setupUi.cycleMode = 'new';
+        }
+        render();
+      });
+    });
   });
 
   document.getElementById('add-to-team-list')?.addEventListener('click', () => {
