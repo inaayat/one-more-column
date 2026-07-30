@@ -330,7 +330,7 @@ function renderSettings() {
           </label>
           <label class="field">
             <span class="field-label">New workspace name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="BP SOX" />
+            <input id="new-workspace-name" class="field-input" placeholder="Engineering team" />
           </label>
           <label class="field">
             <span class="field-label">Profile</span>
@@ -351,7 +351,7 @@ function renderSettings() {
           </label>
           <label class="field">
             <span class="field-label">New cycle name</span>
-            <input id="new-cycle-name" class="field-input" placeholder="FY26 SOX" />
+            <input id="new-cycle-name" class="field-input" placeholder="FY26 Q1" />
           </label>
           <label class="field">
             <span class="field-label">Cycle type</span>

@@ -135,7 +135,7 @@ export function renderPlanView({ state, escapeHtml, cycleOptions, scenarioOption
       <div class="form-grid" style="margin-bottom:14px">
         <label class="field field-span-2">
           <span class="field-label">Title</span>
-          <input id="new-item-title" class="field-input" placeholder="Control test work" />
+          <input id="new-item-title" class="field-input" placeholder="API migration" />
         </label>
         <label class="field">
           <span class="field-label">Phase</span>
@@ -157,7 +157,7 @@ export function renderPlanView({ state, escapeHtml, cycleOptions, scenarioOption
       <div class="form-grid" style="margin-bottom:14px">
         <label class="field field-span-2">
           <span class="field-label">CSV import (title, work_hours, due_week, phase)</span>
-          <textarea id="import-csv" class="field-input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Control A,8,2026-01-12,Phase 1"></textarea>
+          <textarea id="import-csv" class="field-input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Task A,8,2026-01-12,Phase 1"></textarea>
         </label>
         <div class="field" style="align-self:end">
           <button type="button" class="btn btn-ghost" id="preview-import">Preview CSV</button>
@@ -237,13 +237,13 @@ export function renderDependenciesView({ state, escapeHtml, cycleOptions, scenar
       <div class="form-grid" style="margin-bottom:12px">
         <label class="field">
           <span class="field-label">Label</span>
-          <input id="new-dep-label" class="field-input" placeholder="PBC received" />
+          <input id="new-dep-label" class="field-input" placeholder="Prerequisite complete" />
         </label>
         <label class="field">
           <span class="field-label">Type</span>
           <select id="new-dep-type" class="field-input">
-            <option value="evidence_ready">Evidence ready</option>
-            <option value="sample_chain">Sample chain</option>
+            <option value="input_ready">Input ready</option>
+            <option value="handoff_chain">Handoff chain</option>
             <option value="review_lag">Review lag</option>
             <option value="phase_gate">Phase gate</option>
             <option value="staffing">Staffing</option>

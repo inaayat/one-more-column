@@ -14,7 +14,7 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 |---|---|
 | [ideation/](./ideation/) | Phase 0 specs, architecture, Excel example, design template |
 | [BUILD_PLAN.md](./BUILD_PLAN.md) | Phased delivery (platform + capacity + hosted/auth on inaayat.xyz) |
-| [ideation/CAPACITY_PLANNER_SPECIFICATION.md](./ideation/CAPACITY_PLANNER_SPECIFICATION.md) | Domain background + flexible platform vision (reference) |
+| [ideation/CAPACITY_PLANNER_SPECIFICATION.md](./ideation/CAPACITY_PLANNER_SPECIFICATION.md) | Archived domain notes + flexible platform vision (see BUILD_PLAN) |
 | [ideation/HOSTED_APP_ARCHITECTURE.md](./ideation/HOSTED_APP_ARCHITECTURE.md) | Neon Auth + path proxy + Postgres cutover |
 | [ideation/config.excel.example.json](./ideation/config.excel.example.json) | External embed/edit URL example |
 | [ideation/templates/blank-styling-template.html](./ideation/templates/blank-styling-template.html) | Mulish design tokens + UI chrome |

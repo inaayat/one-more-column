@@ -1,7 +1,7 @@
 profile: default
 fields:
-  - key: control_id
-    label: Control ID
+  - key: external_id
+    label: External ID
     type: text
     source: static
     validation:
@@ -10,18 +10,18 @@ fields:
     label: Work Period
     type: text
     source: static
-  - key: reliance
-    label: Reliance
+  - key: priority
+    label: Priority
     type: select
     source: static
     validation:
       options: [High, Medium, Low]
-  - key: sampling
-    label: Sampling
+  - key: category
+    label: Category
     type: text
     source: static
-  - key: evidence_due
-    label: Evidence Due
+  - key: input_due
+    label: Input Due
     type: date
     source: dynamic
   - key: ready_to_start

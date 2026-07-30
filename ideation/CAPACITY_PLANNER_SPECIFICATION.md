@@ -1,12 +1,12 @@
 # Capacity Planner — Specification
 
-**Status:** Draft (opinionated)  
-**Audience:** Enablement, BP SOX planning leads, future platform contributors  
+> **Note (2026):** This document is **historical ideation** from Phase 0. The shipped product is a **flexible capacity planner** — not SOX-specific. Use [`../BUILD_PLAN.md`](../BUILD_PLAN.md) as the source of truth for current scope, terminology, and delivery. Part A below describes a legacy domain context only; do not treat it as product requirements.
+
+**Status:** Archived reference  
+**Audience:** Future platform contributors  
 **Sources analyzed:**
-- Current application: capacity planner repo (sync → generate → patch → GitHub Pages)
-- Live export: tool-generated capacity Excel export
-- Non-Jira embed: Non-Jira tracking workbook
-- Primary planning workbook: All Up Plan Excel workbook (30 sheets)
+- Legacy static capacity planner (sync → generate → patch → GitHub Pages)
+- Example planning workbooks and embed configs from early discovery
 
 ---
 
@@ -16,17 +16,19 @@ This specification is intentionally split into **two parts**:
 
 | Part | What it is | Use it for |
 |---|---|---|
-| **[Part A — SOX Capacity Planner](#part-a--sox-capacity-planner)** | Spec for today’s tool, Excel planning process, and **next steps** as a SOX dependency tracker / SOX planning surface | Near-term product decisions and implementation |
-| **[Part B — Flexible Planning Platform](#part-b--flexible-planning-platform-aspirational)** | Aspirational vision: generalize beyond SOX to many task types with flexible inputs, on a **live hosted site with database + auth** (not GitHub Pages) | Long-term architecture; do not conflate with Part A delivery |
+| **[Part A — Legacy domain context](#part-a--legacy-domain-context)** | Historical notes from an early compliance-oriented planning workflow | Background only — **not** current product scope |
+| **[Part B — Flexible Planning Platform](#part-b--flexible-planning-platform-aspirational)** | Vision: flexible planning for many task types on a **live hosted site with database + auth** | Architecture reference; aligns with what we ship today |
 
 **Related docs:**
-- [`../BUILD_PLAN.md`](../BUILD_PLAN.md) — complex phased delivery plan (Track A / H / B) + key functionality gates
-- [`HOSTED_APP_ARCHITECTURE.md`](./HOSTED_APP_ARCHITECTURE.md) — technical deep dive for Part B hosting (API, Postgres, SSO, cutover)
+- [`../BUILD_PLAN.md`](../BUILD_PLAN.md) — phased delivery plan + acceptance gates (**authoritative**)
+- [`HOSTED_APP_ARCHITECTURE.md`](./HOSTED_APP_ARCHITECTURE.md) — runtime architecture (Neon Auth, Postgres, API)
 - [`templates/blank-styling-template.html`](./templates/blank-styling-template.html) — blank UI shell / design tokens
 
 ---
 
-# PART A — SOX Capacity Planner
+# PART A — Legacy domain context
+
+> **Archived.** The sections below preserve early discovery notes. The app does **not** implement controls, PBC chains, test-hour columns, or other compliance-specific concepts.
 
 > **Scope:** Business Process (BP) SOX testing capacity and the planning process that feeds it.  
 > **Runtime today:** Static dashboard on GitHub Pages, fed by hourly Jira sync.  

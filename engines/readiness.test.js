@@ -13,13 +13,13 @@ test('computeReviewDue adds lag days', () => {
 });
 
 test('computeReadyToStart blocks on open dependency', () => {
-  const item = { id: 'a', title: 'Control A', due_week: '2026-02-01', attributes: {} };
+  const item = { id: 'a', title: 'Task A', due_week: '2026-02-01', attributes: {} };
   const deps = [
     {
       id: 'd1',
-      dep_type: 'evidence_ready',
+      dep_type: 'input_ready',
       status: 'open',
-      label: 'PBC received',
+      label: 'Prerequisite complete',
       meta: { due_date: '2026-01-20' },
     },
   ];
@@ -30,11 +30,17 @@ test('computeReadyToStart blocks on open dependency', () => {
 });
 
 test('computeReadyToStart uses met dependency date', () => {
-  const item = { id: 'a', title: 'Control A', attributes: {} };
+  const item = { id: 'a', title: 'Task A', attributes: {} };
   const deps = [
-    { id: 'd1', dep_type: 'evidence_ready', status: 'met', meta: { met_date: '2026-01-15' } },
+    { id: 'd1', dep_type: 'input_ready', status: 'met', meta: { met_date: '2026-01-15' } },
   ];
   const result = computeReadyToStart(item, deps, {});
   assert.equal(result.blocked, false);
   assert.equal(result.ready_date, '2026-01-15');
+});
+
+test('computeReadyToStart reads input_due from attributes', () => {
+  const item = { id: 'a', title: 'Task B', attributes: { input_due: '2026-01-10' } };
+  const result = computeReadyToStart(item, [], {});
+  assert.equal(result.ready_date, '2026-01-10');
 });

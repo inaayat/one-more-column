@@ -10,7 +10,7 @@
 
 **Non-goals for this document:** calendar-day estimates, staffing Gantt charts. Difficulty is expressed as subsystem invasiveness and dependency risk.
 
-**Non-goals for initial iterations (v1):** scheduled or on-demand **pulls** from external systems — including Jira, HR/calendar APIs, RCM catalogs, SharePoint embeds, or any live sync job. The app is the source of record until a later integration phase.
+**Non-goals for initial iterations (v1):** scheduled or on-demand **pulls** from external systems — including Jira, HR/calendar APIs, external catalogs, SharePoint embeds, or any live sync job. The app is the source of record until a later integration phase.
 
 ---
 
@@ -130,7 +130,7 @@ Freeze these names everywhere:
 | C1.7 | Group / team tabs | Render all capacity groups consistently | Low |
 | C1.8 | Three-band coloring (optional) | Unify HTML with export bands | Low — design decision |
 
-**Still external after C1:** phase placement authoring, evidence-matrix authoring, readiness rule ownership (until C2/C3).
+**Still external after C1:** phase placement authoring, calendar-matrix authoring, readiness rule ownership (until C2/C3).
 
 **Key functionality considerations**
 - **Availability honesty:** Prefer person-specific daily × working days − PTO, not flat weekly defaults.
@@ -152,8 +152,8 @@ Freeze these names everywhere:
 
 **Gate types (minimum set — profile-configurable)**
 
-1. Evidence / input readiness → ready-to-start  
-2. Sample / selection chains with dated handoffs  
+1. Input / prerequisite readiness → ready-to-start  
+2. Sequenced handoffs with dated milestones  
 3. Review lag: work due → review due (+ policy offsets)  
 4. Phase / milestone threshold rules  
 5. Staffing / placeholder-role dependencies  
@@ -167,7 +167,7 @@ Freeze these names everywhere:
 | Module | Role | Inputs → output |
 |---|---|---|
 | `period_normalizer` | Period labels → canonical keys | Labels → keys |
-| `evidence_calendar` | Evidence due dates | Work object × period → due dates |
+| `input_calendar` | Prerequisite due dates | Work object × period → due dates |
 | `ready_to_start` | Readiness rules | Inputs → ready date |
 | `phase_assigner` | Phase / milestone placement | Ready + rules → phase |
 | `date_policy` | Review due rules | Work due + cutoff + override → review due |
@@ -251,7 +251,7 @@ CapacityContributor
 
 **Deferred to Track P2 — external publish & pull**
 - Publish / writeback to Jira (or any tracker)  
-- Scheduled or manual **pull** from Jira, HR, RCM, etc.  
+- Scheduled or manual **pull** from Jira, HR, external catalogs, etc.  
 - Drift alerts driven by live tracker changes  
 
 See §5 **Track P2** below.
@@ -436,7 +436,7 @@ After the core loop works (`enter or upload → plan → capacity → export`), 
 | Capability | First profile | Generalization |
 |---|---|---|
 | Capacity | Work + review hours | Configurable FTE/hours models per profile |
-| Dependencies | Evidence → ready → work → review | Arbitrary predecessor / gate graphs |
+| Dependencies | Prerequisite → ready → work → review | Arbitrary predecessor / gate graphs |
 | Workload | Balance assignees | Intake queues, WIP limits, prioritization |
 | Roadmapping | Phased cycles | Quarters, releases, milestones |
 | Resources | Placeholder roles, PTO | Skills, hiring plans, shared pools |
@@ -477,7 +477,7 @@ Use this as a design review gate for every feature PR:
 ### Planning brain (L0/L1)
 - [ ] Ready-to-start computed, not only inferred for Spread  
 - [ ] Phase assignment + period normalization versioned per cycle  
-- [ ] Profile attributes (reliance, sampling, evidence, etc.) in plan attributes  
+- [ ] Profile-specific attributes (priority, category, input due, etc.) in plan attributes  
 - [ ] Assumptions visible and owned  
 - [ ] Dependencies typed with status (static vs dynamic)
 
@@ -601,7 +601,7 @@ Cut authority only on cycle boundaries.
 
 **Policy / math**
 1. Support-hour rules: flat % vs floor vs phase-specific variants?  
-2. Who seeds yearly evidence / calendar tables — manual entry, upload template, or wait for P2?  
+2. Who seeds yearly calendar / input-due tables — manual entry, upload template, or wait for P2?  
 3. Placeholder roles = Resources or placeholders?  
 4. Leadership reporting: flat weekly cap vs person-specific daily model?
 

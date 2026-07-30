@@ -7,7 +7,7 @@ import { computeReviewDue } from './date_policy.js';
 export function computeReadyToStart(planItem, dependencies = [], policy = {}) {
   const attrs = planItem.attributes || {};
   const blockers = [];
-  let readyDate = attrs.evidence_due || attrs.ready_to_start || null;
+  let readyDate = attrs.input_due || attrs.evidence_due || attrs.ready_to_start || null;
 
   for (const dep of dependencies) {
     if (dep.status === 'waived') continue;

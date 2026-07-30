@@ -3,20 +3,20 @@
 **Status:** Draft (revised for inaayat.xyz)  
 **Belongs to:** [Part B](./CAPACITY_PLANNER_SPECIFICATION.md#part-b--flexible-planning-platform-aspirational) of [`CAPACITY_PLANNER_SPECIFICATION.md`](./CAPACITY_PLANNER_SPECIFICATION.md)  
 **Sequencing detail:** [`../BUILD_PLAN.md`](../BUILD_PLAN.md) Track H  
-**Not:** Part A near-term SOX Capacity Planner delivery on GitHub Pages (that remains Pages-oriented until/unless Track H cutover)  
+**Not:** Legacy static GitHub Pages delivery (superseded by Track H on inaayat.xyz)  
 **Styling reference:** [`templates/blank-styling-template.html`](./templates/blank-styling-template.html)  
 **Production URL:** `https://inaayat.xyz/one-more-column/`  
 **Auth twin:** `https://inaayat.xyz/amc-a-lister/` in repo `inaayat/replacing-nerd-jobs`
 
-This is the **technical deep dive for Part B / Track H**: what a flexible planning platform looks like hosted as a normal web application with a persistent database and authentication — specifically on **inaayat.xyz** via a **separate Vercel project + main-site path rewrites**, reusing **Neon Auth** exactly like AMC A-Lister.
+This is the **technical deep dive for Track H**: a flexible planning platform hosted as a normal web application with a persistent database and authentication — on **inaayat.xyz** via a **separate Vercel project + main-site path rewrites**, reusing **Neon Auth** exactly like AMC A-Lister.
 
-Use **Part A** of the main spec for SOX Capacity Planner behavior and next steps. Use **[`../BUILD_PLAN.md`](../BUILD_PLAN.md)** for phased delivery. Use **this document** for runtime architecture.
+Use **[`../BUILD_PLAN.md`](../BUILD_PLAN.md)** for phased delivery and product scope. Use **this document** for runtime architecture.
 
 ---
 
 ## 1. Why re-host (Part B / Track H)
 
-The current GitHub Pages pipeline is excellent for a read-only SOX capacity dashboard (Part A). It breaks down when you need a flexible, multi-user planning platform:
+The legacy GitHub Pages pipeline was fine for a read-only capacity dashboard. A flexible, multi-user planning platform needs hosted auth and Postgres:
 
 | Need | Pages + static HTML | Hosted app on inaayat.xyz |
 |---|---|---|
@@ -47,7 +47,7 @@ Application API (Vercel serverless in this repo)
    │
    ├── Neon Postgres (SoR)
    ├── Job workers / cron (sync, publish, alerts, export)
-   └── External adapters (Jira, RCM, PTO, calendar, …)
+   └── External adapters (Jira, catalogs, PTO, calendar, …)
 ```
 
 ### 2.1 Why this does **not** complicate creation
@@ -137,7 +137,7 @@ Map via allowlist / `user_roles` table keyed on Neon `sub` (default Viewer). IdP
 - Writes to PlanItems / Policies: Planner+.
 - Jira publish: Publisher+ (and always audited).
 - Credential management (Jira token): Admin only; tokens in Vercel env / secrets manager, never in git.
-- Row-level (optional later): filter by Control Group / team — not required for MVP.
+- Row-level (optional later): filter by team — not required for MVP.
 
 ### 3.5 Child + main vercel wiring
 
@@ -188,7 +188,7 @@ Align with the domain model in the main spec. Concrete tables:
 users                -- from Neon Auth (id = auth.sub, email, display_name)
 roles / user_roles
 
-planning_cycles      -- FY26 BP SOX, etc.
+planning_cycles      -- FY26 Q1, Sprint 12, etc.
 planning_policies    -- versioned JSON + typed columns for common knobs
 assumptions          -- cycle_id, text, status, owner_user_id
 
@@ -197,7 +197,7 @@ resource_profiles    -- effective_from, weekly_hours OR daily_hours
 resource_time_off    -- date range, hours, reason (PTO, holiday, wellness)
 
 field_definitions    -- registry for extensible attributes
-work_objects         -- controls / generic work masters (from RCM)
+work_objects         -- generic work masters (from imports or manual entry)
 plan_items           -- spine rows (unique_key, phase, attributes JSONB, …)
 plan_item_assignments
 plan_item_dates
@@ -227,7 +227,7 @@ audit_events         -- who/what/when for edits & publishes
 
 ### 4.3 Extensibility
 
-- Put SOX-specific columns that change yearly into `plan_items.attributes` JSONB.
+- Put profile-specific columns that change per cycle into `plan_items.attributes` JSONB.
 - Register each key in `field_definitions` (type, static|dynamic, source, validation).
 - Capacity engine reads known keys + registered compute rules — **no migration for every new Excel column**.
 
@@ -348,7 +348,7 @@ Conflict policy (recommend): **Jira wins on status/comments**; **scenario wins o
 ## 9. Security & compliance notes
 
 - Jira API tokens in Vercel env / secrets manager; rotate still every ~30 days unless switched to OAuth.
-- Audit every publish and policy change (SOX planning evidence hygiene).
+- Audit every publish and policy change.
 - Encrypt data in transit; Neon private networking as available.
 - Export downloads authenticated.
 - Do not embed secrets in frontend bundles.
@@ -438,7 +438,7 @@ For local auth against production Neon Auth, follow the same approach as AMC A-L
 
 1. **Neon Postgres** over SQLite for production.  
 2. **Neon Auth** (same as AMC A-Lister) before Plan Builder ships with real data.  
-3. **Scenarios** before free-edit-on-live-plan (safer for SOX).  
+3. **Scenarios** before free-edit-on-live-plan (safer for multi-user planning).  
 4. **Publish is explicit** — no silent Jira writeback on every blur.  
 5. **Pages can remain a mirror** for one cycle after H0, then sunset.  
 6. **Same CSS tokens** as blank template / current dashboard — one visual product for planning UI.  
