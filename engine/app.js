@@ -19,6 +19,8 @@ import {
 import {
   scenarioOptions,
   renderHomeView,
+  renderSetupProgressBanner,
+  setupSectionClass,
   renderPlanView,
   renderDependenciesView,
   renderAlertsView,
@@ -26,6 +28,7 @@ import {
   teamTabs,
   capacityCellClass,
 } from './views.js';
+import { getSetupProgress, getInitialRoute, resolveRoute, navItems } from './setup.js';
 
 const APP_PATH = '/one-more-column/';
 const WORKSPACE_STORAGE_KEY = 'omc_active_workspace_id';
@@ -104,19 +107,19 @@ function workspaceOptions(selectedId) {
 }
 
 function renderShell({ body, activeNav = 'home' }) {
-  const navItems = [
-    { id: 'home', label: 'Home' },
-    { id: 'plan', label: 'Plan' },
-    { id: 'dependencies', label: 'Dependencies' },
-    { id: 'capacity', label: 'Capacity' },
-    { id: 'alerts', label: 'Alerts' },
-    { id: 'settings', label: 'Settings' },
-  ];
-  const nav = navItems
-    .map(
-      (item) =>
-        `<a href="#/${item.id}" class="nav-link${activeNav === item.id ? ' active' : ''}">${item.label}</a>`,
-    )
+  const items = navItems(state);
+  const nav = items
+    .map((item) => {
+      const cls = [
+        'nav-link',
+        activeNav === item.id ? 'active' : '',
+        item.highlight ? 'nav-link-next' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const dot = item.highlight ? '<span class="nav-link-dot" aria-hidden="true"></span>' : '';
+      return `<a href="#/${item.id}" class="${cls}">${item.label}${dot}</a>`;
+    })
     .join('');
 
   const user = state.me?.user || state.auth?.user || {};
@@ -272,6 +275,7 @@ function renderCapacity() {
 
 function renderSettings() {
   const policy = state.policy?.config || {};
+  const progress = getSetupProgress(state);
   const resourceRows = state.resources
     .map(
       (r) => `
@@ -299,8 +303,9 @@ function renderSettings() {
   return renderShell({
     activeNav: 'settings',
     body: `
-      <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Workspace</h2>
+      ${renderSetupProgressBanner(state)}
+      <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Step 1 — Workspace</h2>
         <p class="omc-lead" style="margin-bottom:12px">Workspaces isolate resource pools and cycles. People persist across cycles within a workspace and can be edited anytime.</p>
         <div class="form-grid">
           <label class="field">
@@ -309,7 +314,7 @@ function renderSettings() {
           </label>
           <label class="field">
             <span class="field-label">New workspace name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="BP SOX" />
+            <input id="new-workspace-name" class="field-input" placeholder="Engineering team" />
           </label>
           <label class="field">
             <span class="field-label">Profile</span>
@@ -321,8 +326,8 @@ function renderSettings() {
         </div>
       </section>
 
-      <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Planning cycle</h2>
+      <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}" style="margin-bottom:16px">
+        <h2 class="omc-section-title">Step 2 — Planning cycle</h2>
         <div class="form-grid">
           <label class="field">
             <span class="field-label">Active cycle</span>
@@ -330,7 +335,7 @@ function renderSettings() {
           </label>
           <label class="field">
             <span class="field-label">New cycle name</span>
-            <input id="new-cycle-name" class="field-input" placeholder="FY26 SOX" />
+            <input id="new-cycle-name" class="field-input" placeholder="FY26 Q1" />
           </label>
           <label class="field">
             <span class="field-label">Cycle type</span>
@@ -353,6 +358,36 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create cycle</button>
           </div>
         </div>
+      </section>
+
+      <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}" style="margin-bottom:16px">
+        <div class="panel-head">
+          <h2 class="omc-section-title">Step 3 — Team members</h2>
+          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save changes</button>
+        </div>
+        <p class="omc-lead" style="margin-bottom:12px">Add everyone who will carry work in this workspace. You need at least one person before you can plan.</p>
+        <div class="form-grid" style="margin-bottom:12px">
+          <label class="field">
+            <span class="field-label">Add person</span>
+            <input id="new-resource-name" class="field-input" placeholder="Name" />
+          </label>
+          <label class="field">
+            <span class="field-label">Team</span>
+            <input id="new-resource-team" class="field-input" placeholder="Engineering" />
+          </label>
+          <label class="field">
+            <span class="field-label">Weekly hours</span>
+            <input id="new-resource-hours" class="field-input" type="number" value="32" />
+          </label>
+          <div class="field" style="align-self:end">
+            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add</button>
+          </div>
+        </div>
+        <table class="data-table" id="resources-table">
+          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
+          <tbody>${resourceRows || '<tr><td colspan="4">No resources yet.</td></tr>'}</tbody>
+        </table>
+        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/plan">Continue to Plan →</a></div>` : ''}
       </section>
 
       <section class="panel" style="margin-bottom:16px">
@@ -436,34 +471,6 @@ function renderSettings() {
         <ul class="changelog-list">
           ${(state.changelog || []).slice(0, 15).map((e) => `<li><span class="mono">${escapeHtml(new Date(e.created_at).toLocaleString())}</span> — ${escapeHtml(e.summary)}</li>`).join('') || '<li class="omc-lead">No changes logged yet.</li>'}
         </ul>
-      </section>
-
-      <section class="panel" style="margin-bottom:16px">
-        <div class="panel-head">
-          <h2 class="omc-section-title">Resources & teams</h2>
-          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save changes</button>
-        </div>
-        <div class="form-grid" style="margin-bottom:12px">
-          <label class="field">
-            <span class="field-label">Add person</span>
-            <input id="new-resource-name" class="field-input" placeholder="Name" />
-          </label>
-          <label class="field">
-            <span class="field-label">Team</span>
-            <input id="new-resource-team" class="field-input" placeholder="BP" />
-          </label>
-          <label class="field">
-            <span class="field-label">Weekly hours</span>
-            <input id="new-resource-hours" class="field-input" type="number" value="32" />
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="add-resource">Add</button>
-          </div>
-        </div>
-        <table class="data-table" id="resources-table">
-          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
-          <tbody>${resourceRows || '<tr><td colspan="4">No resources yet.</td></tr>'}</tbody>
-        </table>
       </section>
 
       <section class="panel">
@@ -1054,7 +1061,13 @@ async function refreshView() {
 
 function render() {
   const root = document.getElementById('app-root');
-  const route = currentRoute();
+  const rawRoute = currentRoute();
+  const route = resolveRoute(rawRoute, state);
+  if (route !== rawRoute) {
+    navigate(route);
+    return;
+  }
+
   let html;
   if (route === 'plan') html = renderPlan();
   else if (route === 'dependencies') html = renderDependencies();
@@ -1065,12 +1078,22 @@ function render() {
   root.innerHTML = html;
   wireAuthLink(state.auth);
 
-  if (route === 'settings') wireSettingsEvents();
-  else if (route === 'plan') wirePlanEvents();
+  if (route === 'settings') {
+    wireSettingsEvents();
+    scrollToSetupStep();
+  } else if (route === 'plan') wirePlanEvents();
   else if (route === 'dependencies') wireDependencyEvents();
   else if (route === 'capacity') wireCapacityEvents();
   else if (route === 'alerts') wireAlertsEvents();
   else wireWorkspaceEvents();
+}
+
+function scrollToSetupStep() {
+  const anchor = getSetupProgress(state).nextStep?.anchor;
+  if (!anchor) return;
+  requestAnimationFrame(() => {
+    document.getElementById(anchor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 async function boot() {
@@ -1093,6 +1116,14 @@ async function boot() {
     state.me = await meApi.get(auth.token);
     await loadWorkspaces();
     await loadCoreData();
+
+    const emptyHash = !location.hash || location.hash === '#/' || location.hash === '#';
+    if (emptyHash) {
+      location.replace(`#/${getInitialRoute(state)}`);
+    } else {
+      const resolved = resolveRoute(currentRoute(), state);
+      if (resolved !== currentRoute()) location.replace(`#/${resolved}`);
+    }
 
     window.addEventListener('hashchange', async () => {
       const route = currentRoute();
