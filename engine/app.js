@@ -93,8 +93,69 @@ function activeWorkspace() {
   return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
 }
 
-function confirmDelete(label) {
-  return window.confirm(`Delete ${label}? This cannot be undone.`);
+function renderTeamPersonRows(state, escapeHtml) {
+  const existing = state.resources
+    .map(
+      (r) => `
+      <div class="team-person-row" data-id="${escapeHtml(r.id)}">
+        <label class="field team-field">
+          <span class="field-label">Who</span>
+          <input class="field-input" data-field="name" value="${escapeHtml(r.name)}" />
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Role</span>
+          <input class="field-input" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="e.g. Engineer" />
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Std h/wk</span>
+          <input class="field-input" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" />
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm team-remove-btn btn-delete-resource" title="Remove">×</button>
+      </div>`,
+    )
+    .join('');
+
+  const drafts = (state.setupDraftPeople || [])
+    .map(
+      (p, i) => `
+      <div class="team-person-row team-person-draft" data-draft-idx="${i}">
+        <label class="field team-field">
+          <span class="field-label">Who</span>
+          <span class="team-draft-value">${escapeHtml(p.name)}</span>
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Role</span>
+          <span class="team-draft-value">${escapeHtml(p.team || '—')}</span>
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Std h/wk</span>
+          <span class="team-draft-value">${p.weekly_hours ?? 32}</span>
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm team-remove-btn btn-remove-draft" data-idx="${i}" title="Remove">×</button>
+      </div>`,
+    )
+    .join('');
+
+  return `
+    <div class="team-people-list" id="setup-team-list">
+      ${existing}
+      ${drafts}
+      <div class="team-add-row" id="setup-team-add-row">
+        <label class="field team-field">
+          <span class="field-label">Who</span>
+          <input id="new-resource-name" class="field-input" placeholder="Name" />
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Role</span>
+          <input id="new-resource-team" class="field-input" placeholder="e.g. Engineer" />
+        </label>
+        <label class="field team-field">
+          <span class="field-label">Std h/wk</span>
+          <input id="new-resource-hours" class="field-input" type="number" step="0.5" value="32" />
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm team-add-btn" id="add-to-team-list" title="Add person">+</button>
+      </div>
+    </div>`;
 }
 
 function persistActiveWorkspace() {
@@ -455,7 +516,7 @@ async function submitSetupPlan() {
     });
   }
 
-  const rows = [...document.querySelectorAll('#setup-team-table tbody tr[data-id]')];
+  const rows = [...document.querySelectorAll('#setup-team-list .team-person-row[data-id]')];
   if (rows.length) {
     const resources = rows.map((row) => ({
       id: row.dataset.id,
@@ -484,7 +545,7 @@ function renderPeopleDetailsPanel(state, escapeHtml) {
     return `
       <section class="panel">
         <h2 class="omc-section-title">People details</h2>
-        <p class="omc-lead">Add your team in step 2 first — then you can layer on PTO and other details here.</p>
+        <p class="omc-lead">Add your team on Setup first — then you can layer on PTO and other details here.</p>
       </section>`;
   }
 
@@ -530,32 +591,7 @@ function renderPeopleDetailsPanel(state, escapeHtml) {
 }
 
 function renderSettings() {
-  const policy = state.policy?.config || {};
   const progress = getSetupProgress(state);
-  const draftRows = (state.setupDraftPeople || [])
-    .map(
-      (p, i) => `
-      <tr class="setup-draft-row" data-draft-idx="${i}">
-        <td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.team || '—')}</td>
-        <td>${p.weekly_hours ?? 32}</td>
-        <td><span class="badge">Pending</span> <button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}">×</button></td>
-      </tr>`,
-    )
-    .join('');
-
-  const resourceRows = state.resources
-    .map(
-      (r) => `
-      <tr data-id="${escapeHtml(r.id)}">
-        <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
-        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Role" /></td>
-        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" /></td>
-        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove">×</button></td>
-      </tr>`,
-    )
-    .join('');
-
   const wsMode = resolveSetupMode('workspace', state.workspaces.length > 0);
   const cycleMode = resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
 
@@ -634,22 +670,8 @@ function renderSettings() {
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
         <div class="setup-section-body">
         <h2 class="omc-section-title">2. Team <span class="setup-optional-tag">optional</span></h2>
-        <p class="omc-lead setup-section-lead">One row per person — name, role, standard hours. Add PTO later under People details.</p>
-        <div class="setup-table-scroll setup-people-table">
-        <table class="data-table setup-team-table" id="setup-team-table">
-          <thead><tr><th>Who</th><th>Role</th><th>Std h/wk</th><th></th></tr></thead>
-          <tbody>
-            ${resourceRows}
-            ${draftRows}
-            <tr id="setup-team-add-row">
-              <td><input id="new-resource-name" class="field-input field-sm" placeholder="Name" /></td>
-              <td><input id="new-resource-team" class="field-input field-sm" placeholder="e.g. Engineer" /></td>
-              <td><input id="new-resource-hours" class="field-input field-sm" type="number" step="0.5" value="32" /></td>
-              <td><button type="button" class="btn btn-ghost btn-sm" id="add-to-team-list" title="Add row">+</button></td>
-            </tr>
-          </tbody>
-        </table>
-        </div>
+        <p class="omc-lead setup-section-lead">One row per person — who, role, standard hours.</p>
+        ${renderTeamPersonRows(state, escapeHtml)}
         </div>
       </section>
       </div>
@@ -657,17 +679,23 @@ function renderSettings() {
       ${renderSetupSubmitBar(progress)}
       </div>
       </form>
+    `,
+  });
+}
 
-      <section class="setup-advanced" aria-labelledby="setup-advanced-title">
-        <header class="setup-advanced-head">
-          <p class="setup-advanced-eyebrow">After the basics</p>
-          <h2 id="setup-advanced-title" class="setup-advanced-title">Optional settings</h2>
-          <p class="omc-lead">Fine-tune planning rules or review history — come back here when you need them.</p>
-        </header>
+function renderPreferences() {
+  const policy = state.policy?.config || {};
+  return renderShell({
+    activeNav: 'preferences',
+    body: `
+      <section class="panel">
+        <h1 class="omc-title">Settings</h1>
+        <p class="omc-lead">Planning rules, people details, and change history for this plan.</p>
+      </section>
       <div class="setup-optional-row setup-optional-row-3">
       <section class="panel">
         <h2 class="omc-section-title">Planning rules</h2>
-        <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings. Most people can leave these as-is.</p>
+        <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings.</p>
         <div class="form-grid setup-form-grid">
           <label class="field">
             <span class="field-label">Default weekly hours</span>
@@ -708,7 +736,6 @@ function renderSettings() {
         </ul>
       </section>
       </div>
-      </section>
     `,
   });
 }
@@ -991,31 +1018,58 @@ function wireSettingsEvents() {
 
   document.getElementById('delete-workspace')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId || state.workspaces.length <= 1) return;
-    const name = activeWorkspace()?.name || 'this workspace';
-    if (!confirmDelete(name)) return;
-    await workspacesApi.delete(state.token, state.activeWorkspaceId);
-    state.activeWorkspaceId = null;
+    const deletedId = state.activeWorkspaceId;
+    await workspacesApi.delete(state.token, deletedId);
+    state.workspaces = state.workspaces.filter((w) => w.id !== deletedId);
+    state.activeWorkspaceId = state.workspaces[0]?.id ?? null;
     state.activeCycleId = null;
     state.activeScenarioId = null;
-    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-    await refreshView();
+    if (!state.activeWorkspaceId) localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    else persistActiveWorkspace();
+    await loadCoreData();
+    render();
   });
 
   document.getElementById('delete-cycle')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId || !state.activeCycleId) return;
-    const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
-    if (!confirmDelete(cycle?.name || 'this plan')) return;
-    await cyclesApi.delete(state.token, state.activeWorkspaceId, state.activeCycleId);
-    state.activeCycleId = null;
+    const deletedId = state.activeCycleId;
+    await cyclesApi.delete(state.token, state.activeWorkspaceId, deletedId);
+    state.cycles = state.cycles.filter((c) => c.id !== deletedId);
+    state.activeCycleId = state.cycles[0]?.id ?? null;
     state.activeScenarioId = null;
-    await refreshView();
+    if (state.activeCycleId) {
+      const { policy } = await policyApi.get(state.token, state.activeCycleId);
+      state.policy = policy;
+      await loadScenarioData();
+    } else {
+      state.policy = null;
+      state.planItems = [];
+      state.scenarios = [];
+    }
+    render();
   });
 
   document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
     state.activeCycleId = e.target.value || null;
     state.activeScenarioId = null;
-    await refreshView();
+    await loadCoreData();
+    render();
   });
+
+  document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('.team-person-row');
+      const id = row?.dataset?.id;
+      if (!id) return;
+      await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
+      state.resources = state.resources.filter((r) => r.id !== id);
+      render();
+    });
+  });
+}
+
+function wirePreferencesEvents() {
+  wireWorkspaceEvents();
 
   document.getElementById('save-policy')?.addEventListener('click', async () => {
     if (!state.activeCycleId) return;
@@ -1033,7 +1087,7 @@ function wireSettingsEvents() {
     };
     const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
     state.policy = policy;
-    await refreshView();
+    render();
   });
 
   document.getElementById('add-pto')?.addEventListener('click', async () => {
@@ -1041,35 +1095,36 @@ function wireSettingsEvents() {
     const start = document.getElementById('pto-start')?.value;
     const end = document.getElementById('pto-end')?.value;
     if (!start || !end) return;
-    await timeOffApi.create(state.token, state.activeWorkspaceId, {
-      resource_id: document.getElementById('pto-resource')?.value,
+    const resourceId = document.getElementById('pto-resource')?.value;
+    const created = await timeOffApi.create(state.token, state.activeWorkspaceId, {
+      resource_id: resourceId,
       start_date: start,
       end_date: end,
       hours_per_day: document.getElementById('pto-hours')?.value || null,
       reason: 'PTO',
     });
-    await refreshView();
+    const entry = created.time_off;
+    if (!entry) return;
+    state.resources = state.resources.map((r) =>
+      r.id === resourceId
+        ? { ...r, time_off: [...(r.time_off || []), entry] }
+        : r,
+    );
+    render();
   });
 
   document.querySelectorAll('.btn-del-pto').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      if (!confirmDelete('this PTO entry')) return;
-      await timeOffApi.delete(state.token, btn.dataset.id);
-      await refreshView();
+      const ptoId = btn.dataset.id;
+      if (!ptoId) return;
+      await timeOffApi.delete(state.token, ptoId);
+      state.resources = state.resources.map((r) => ({
+        ...r,
+        time_off: (r.time_off || []).filter((t) => t.id !== ptoId),
+      }));
+      render();
     });
   });
-
-  document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const row = btn.closest('tr');
-      const id = row?.dataset?.id;
-      const name = row?.querySelector('[data-field="name"]')?.value?.trim() || 'this person';
-      if (!id || !confirmDelete(name)) return;
-      await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
-      await refreshView();
-    });
-  });
-
 }
 
 function wirePlannerEvents() {
@@ -1095,11 +1150,13 @@ function wirePlannerEvents() {
 
   document.getElementById('delete-scenario')?.addEventListener('click', async () => {
     if (!state.activeScenarioId || state.scenarios.length <= 1) return;
-    const scenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
-    if (!confirmDelete(`scenario "${scenario?.name || 'scenario'}"`)) return;
-    await scenariosApi.delete(state.token, state.activeScenarioId);
-    state.activeScenarioId = null;
-    localStorage.removeItem(SCENARIO_STORAGE_KEY);
+    const deletedId = state.activeScenarioId;
+    await scenariosApi.delete(state.token, deletedId);
+    state.scenarios = state.scenarios.filter((s) => s.id !== deletedId);
+    const next = state.scenarios.find((s) => s.status === 'active') || state.scenarios[0];
+    state.activeScenarioId = next?.id ?? null;
+    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
+    else localStorage.removeItem(SCENARIO_STORAGE_KEY);
     await loadScenarioData();
     render();
   });
@@ -1138,17 +1195,19 @@ function wirePlannerEvents() {
   document.querySelectorAll('.planner-row').forEach((row) => {
     row.querySelector('.btn-delete-item')?.addEventListener('click', async () => {
       const id = row.dataset.id;
-      const title = row.querySelector('[data-field="title"]')?.value?.trim() || 'this row';
-      if (!id || !confirmDelete(title)) return;
+      if (!id) return;
       await planItemsApi.delete(state.token, id);
-      await loadScenarioData();
+      state.planItems = state.planItems.filter((item) => item.id !== id);
+      state.dependencies = state.dependencies.filter(
+        (d) => d.from_plan_item_id !== id && d.to_plan_item_id !== id,
+      );
       render();
     });
     row.querySelector('.btn-delete-dep')?.addEventListener('click', async () => {
       const id = row.dataset.depId;
-      if (!id || !confirmDelete('this gate')) return;
+      if (!id) return;
       await dependenciesApi.delete(state.token, id);
-      await loadScenarioData();
+      state.dependencies = state.dependencies.filter((d) => d.id !== id);
       render();
     });
     row.querySelector('.btn-add-gate')?.addEventListener('click', async () => {
@@ -1168,9 +1227,9 @@ function wirePlannerEvents() {
   document.querySelectorAll('.planner-subrow .btn-delete-dep').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = e.target.closest('tr')?.dataset?.depId;
-      if (!id || !confirmDelete('this gate')) return;
+      if (!id) return;
       await dependenciesApi.delete(state.token, id);
-      await loadScenarioData();
+      state.dependencies = state.dependencies.filter((d) => d.id !== id);
       render();
     });
   });
@@ -1425,7 +1484,7 @@ async function refreshView() {
     const mode = document.getElementById('cap-mode')?.value || 'due';
     await loadCapacity(mode, state.capacityGranularity);
   }
-  if (route === 'settings') await loadChangelog();
+  if (route === 'preferences') await loadChangelog();
   render();
 }
 
@@ -1442,6 +1501,7 @@ function render() {
   if (route === 'planner') html = renderPlanner();
   else if (route === 'capacity') html = renderCapacity();
   else if (route === 'settings') html = renderSettings();
+  else if (route === 'preferences') html = renderPreferences();
   else html = renderPlanner();
   root.innerHTML = html;
   wireAuthLink(state.auth);
@@ -1449,6 +1509,8 @@ function render() {
   if (route === 'settings') {
     wireSettingsEvents();
     scrollToSetupStep();
+  } else if (route === 'preferences') {
+    wirePreferencesEvents();
   } else if (route === 'planner') wirePlannerEvents();
   else if (route === 'capacity') wireCapacityEvents();
   else wireWorkspaceEvents();
