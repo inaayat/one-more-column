@@ -88,6 +88,10 @@ function activeWorkspace() {
   return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
 }
 
+function confirmDelete(label) {
+  return window.confirm(`Delete ${label}? This cannot be undone.`);
+}
+
 function persistActiveWorkspace() {
   if (state.activeWorkspaceId) {
     localStorage.setItem(WORKSPACE_STORAGE_KEY, state.activeWorkspaceId);
@@ -304,6 +308,7 @@ function renderSettings() {
         <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" placeholder="32" value="${r.profiles?.[0]?.weekly_hours ?? ''}" /></td>
         <td class="pto-cell">${(r.time_off || []).map((t) => formatPtoChip(t, escapeHtml)).join('') || '<span class="omc-lead">—</span>'}</td>
         <td><label class="check-label"><input type="checkbox" data-field="active" ${r.active ? 'checked' : ''} /> Active</label></td>
+        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove person">×</button></td>
       </tr>`,
     )
     .join('');
@@ -333,6 +338,10 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create team area</button>
           </div>
         </div>
+        ${state.workspaces.length > 1 && state.activeWorkspaceId ? `
+        <div class="btn-row" style="margin-top:12px">
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-workspace">Delete this team area</button>
+        </div>` : ''}
       </section>
 
       <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}">
@@ -368,6 +377,10 @@ function renderSettings() {
             <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create this period</button>
           </div>
         </div>
+        ${state.activeCycleId ? `
+        <div class="btn-row" style="margin-top:12px">
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-cycle">Delete this period</button>
+        </div>` : ''}
       </section>
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
@@ -435,8 +448,8 @@ function renderSettings() {
         ` : ''}
         <div class="setup-table-scroll">
         <table class="data-table" id="resources-table">
-          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th></tr></thead>
-          <tbody>${resourceRows || '<tr><td colspan="5">No one added yet — use the form above.</td></tr>'}</tbody>
+          <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>PTO</th><th>Active</th><th></th></tr></thead>
+          <tbody>${resourceRows || '<tr><td colspan="6">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
         </div>
         ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: Planner →</a></div>` : ''}
@@ -733,6 +746,28 @@ function wireWorkspaceEvents() {
 function wireSettingsEvents() {
   wireWorkspaceEvents();
 
+  document.getElementById('delete-workspace')?.addEventListener('click', async () => {
+    if (!state.activeWorkspaceId || state.workspaces.length <= 1) return;
+    const name = activeWorkspace()?.name || 'this team area';
+    if (!confirmDelete(name)) return;
+    await workspacesApi.delete(state.token, state.activeWorkspaceId);
+    state.activeWorkspaceId = null;
+    state.activeCycleId = null;
+    state.activeScenarioId = null;
+    localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    await refreshView();
+  });
+
+  document.getElementById('delete-cycle')?.addEventListener('click', async () => {
+    if (!state.activeWorkspaceId || !state.activeCycleId) return;
+    const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
+    if (!confirmDelete(cycle?.name || 'this period')) return;
+    await cyclesApi.delete(state.token, state.activeWorkspaceId, state.activeCycleId);
+    state.activeCycleId = null;
+    state.activeScenarioId = null;
+    await refreshView();
+  });
+
   document.getElementById('create-cycle')?.addEventListener('click', async () => {
     if (!state.activeWorkspaceId) return;
     const name = document.getElementById('new-cycle-name')?.value?.trim();
@@ -790,7 +825,19 @@ function wireSettingsEvents() {
 
   document.querySelectorAll('.btn-del-pto').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      if (!confirmDelete('this PTO entry')) return;
       await timeOffApi.delete(state.token, btn.dataset.id);
+      await refreshView();
+    });
+  });
+
+  document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const row = btn.closest('tr');
+      const id = row?.dataset?.id;
+      const name = row?.querySelector('[data-field="name"]')?.value?.trim() || 'this person';
+      if (!id || !confirmDelete(name)) return;
+      await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
       await refreshView();
     });
   });
@@ -853,6 +900,17 @@ function wirePlannerEvents() {
   document.getElementById('mode-draft')?.addEventListener('click', () => switchScenarioMode('draft'));
   document.getElementById('mode-live')?.addEventListener('click', () => switchScenarioMode('live'));
 
+  document.getElementById('delete-scenario')?.addEventListener('click', async () => {
+    if (!state.activeScenarioId || state.scenarios.length <= 1) return;
+    const scenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
+    if (!confirmDelete(`scenario "${scenario?.name || 'scenario'}"`)) return;
+    await scenariosApi.delete(state.token, state.activeScenarioId);
+    state.activeScenarioId = null;
+    localStorage.removeItem(SCENARIO_STORAGE_KEY);
+    await loadScenarioData();
+    render();
+  });
+
   document.getElementById('finalize-scenario')?.addEventListener('click', async () => {
     if (!state.activeScenarioId) return;
     await scenariosApi.patch(state.token, { id: state.activeScenarioId, status: 'active' });
@@ -887,8 +945,16 @@ function wirePlannerEvents() {
   document.querySelectorAll('.planner-row').forEach((row) => {
     row.querySelector('.btn-delete-item')?.addEventListener('click', async () => {
       const id = row.dataset.id;
-      if (!id) return;
+      const title = row.querySelector('[data-field="title"]')?.value?.trim() || 'this row';
+      if (!id || !confirmDelete(title)) return;
       await planItemsApi.delete(state.token, id);
+      await loadScenarioData();
+      render();
+    });
+    row.querySelector('.btn-delete-dep')?.addEventListener('click', async () => {
+      const id = row.dataset.depId;
+      if (!id || !confirmDelete('this gate')) return;
+      await dependenciesApi.delete(state.token, id);
       await loadScenarioData();
       render();
     });
@@ -909,7 +975,7 @@ function wirePlannerEvents() {
   document.querySelectorAll('.planner-subrow .btn-delete-dep').forEach((btn) => {
     btn.addEventListener('click', async (e) => {
       const id = e.target.closest('tr')?.dataset?.depId;
-      if (!id) return;
+      if (!id || !confirmDelete('this gate')) return;
       await dependenciesApi.delete(state.token, id);
       await loadScenarioData();
       render();

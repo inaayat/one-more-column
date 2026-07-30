@@ -401,7 +401,8 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
         <td><input class="field-input field-sm" data-field="phase" value="${escapeAttr(item.phase || '')}" /></td>
         <td class="planner-actions">
           <button type="button" class="btn btn-ghost btn-sm btn-add-gate" title="Add another gate">+</button>
-          <button type="button" class="btn btn-ghost btn-sm btn-delete-item">×</button>
+          ${primary?.id ? '<button type="button" class="btn btn-ghost btn-sm btn-delete-dep" title="Remove gate">×</button>' : ''}
+          <button type="button" class="btn btn-ghost btn-sm btn-delete-item" title="Remove row">×</button>
         </td>
       </tr>${extraRows}`;
     })
@@ -435,6 +436,7 @@ export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOpt
         </div>
         <div class="btn-row">
           <button type="button" class="btn btn-ghost btn-sm" id="create-scenario">New draft</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-scenario"${(state.scenarios?.length || 0) <= 1 ? ' disabled' : ''} title="Delete this scenario">Delete scenario</button>
           <button type="button" class="btn btn-ghost btn-sm" id="finalize-scenario"${isLivePlan ? ' disabled' : ''}>Mark as live plan</button>
           <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export CSV</button>
           <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Check drift</button>
