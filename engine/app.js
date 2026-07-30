@@ -188,7 +188,7 @@ function renderSignInPrompt(auth) {
 
 function cycleOptions(selectedId) {
   if (!state.cycles.length) {
-    return '<option value="">No cycles yet</option>';
+    return '<option value="">No period yet — create one in Setup</option>';
   }
   return state.cycles
     .map((c) => {
@@ -210,7 +210,7 @@ function renderCapacity() {
   if (!state.activeCycleId) {
     return renderShell({
       activeNav: 'capacity',
-      body: `<section class="panel"><p class="omc-lead">Create a planning cycle in Settings first.</p></section>`,
+      body: `<section class="panel"><p class="omc-lead">Finish setup first — add a time period on the Setup page.</p></section>`,
     });
   }
 
@@ -251,7 +251,7 @@ function renderCapacity() {
         <div class="panel-head">
           <div>
             <h1 class="omc-title">Capacity</h1>
-            <p class="omc-lead">${escapeHtml(grid.cycle?.name || '')} · ${granularity === 'month' ? 'Month over month' : 'Week by week'} · ${escapeHtml(grid.mode)} mode</p>
+            <p class="omc-lead">See how many hours each person has each week or month. Green means they have room; red means they are overloaded.</p>
           </div>
           <div class="btn-row">
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
@@ -319,78 +319,79 @@ function renderSettings() {
     body: `
       ${renderSetupProgressBanner(state)}
       <section id="setup-workspace" class="${setupSectionClass(progress, 'setup-workspace')}" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Step 1 — Workspace</h2>
-        <p class="omc-lead" style="margin-bottom:12px">Workspaces isolate resource pools and cycles. People persist across cycles within a workspace and can be edited anytime.</p>
+        <h2 class="omc-section-title">1. Name your team area</h2>
+        <p class="omc-lead" style="margin-bottom:12px">A workspace is your team’s own planning space — separate from other teams. If you already see a name below (like “Default workspace”), you can keep it and move to step 2.</p>
         <div class="form-grid">
           <label class="field">
-            <span class="field-label">Active workspace</span>
+            <span class="field-label">Your team area</span>
             <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
           </label>
           <label class="field">
-            <span class="field-label">New workspace name</span>
-            <input id="new-workspace-name" class="field-input" placeholder="Engineering team" />
+            <span class="field-label">Or create a new one</span>
+            <input id="new-workspace-name" class="field-input" placeholder="e.g. Engineering team" />
           </label>
           <label class="field">
-            <span class="field-label">Profile</span>
-            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" />
+            <span class="field-label">Type (optional)</span>
+            <input id="new-workspace-profile" class="field-input" placeholder="default" value="default" title="Leave as default unless you were told otherwise" />
           </label>
           <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create workspace</button>
+            <button type="button" class="btn btn-refresh-solid" id="create-workspace">Create team area</button>
           </div>
         </div>
       </section>
 
       <section id="setup-cycle" class="${setupSectionClass(progress, 'setup-cycle')}" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Step 2 — Planning cycle</h2>
+        <h2 class="omc-section-title">2. Choose the time period</h2>
+        <p class="omc-lead" style="margin-bottom:12px">What stretch of time is this plan for? A quarter, a sprint, or a full year. Pick start and end dates so the calendar lines up.</p>
         <div class="form-grid">
           <label class="field">
-            <span class="field-label">Active cycle</span>
+            <span class="field-label">Current period</span>
             <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
           </label>
           <label class="field">
-            <span class="field-label">New cycle name</span>
-            <input id="new-cycle-name" class="field-input" placeholder="FY26 Q1" />
+            <span class="field-label">Name this period</span>
+            <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" />
           </label>
           <label class="field">
-            <span class="field-label">Cycle type</span>
+            <span class="field-label">Kind of period</span>
             <select id="new-cycle-type" class="field-input">
-              <option value="annual">Annual</option>
+              <option value="annual">Full year</option>
               <option value="quarter">Quarter</option>
-              <option value="sprint">Sprint</option>
-              <option value="custom">Custom</option>
+              <option value="sprint">Sprint (short)</option>
+              <option value="custom">Other</option>
             </select>
           </label>
           <label class="field">
-            <span class="field-label">Start date</span>
+            <span class="field-label">Starts</span>
             <input id="new-cycle-start" class="field-input" type="date" />
           </label>
           <label class="field">
-            <span class="field-label">End date</span>
+            <span class="field-label">Ends</span>
             <input id="new-cycle-end" class="field-input" type="date" />
           </label>
           <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create cycle</button>
+            <button type="button" class="btn btn-refresh-solid" id="create-cycle">Create this period</button>
           </div>
         </div>
       </section>
 
       <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}" style="margin-bottom:16px">
         <div class="panel-head">
-          <h2 class="omc-section-title">Step 3 — Team members</h2>
-          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save changes</button>
+          <h2 class="omc-section-title">3. Add your team</h2>
+          <button type="button" class="btn btn-ghost btn-sm" id="save-resources">Save names</button>
         </div>
-        <p class="omc-lead" style="margin-bottom:12px">Add everyone who will carry work in this workspace. You need at least one person before you can plan.</p>
+        <p class="omc-lead" style="margin-bottom:12px">Type each person’s name and how many hours per week they usually have for this work (32 is a common default). Add at least one person — then you can go to Planner.</p>
         <div class="form-grid" style="margin-bottom:12px">
           <label class="field">
-            <span class="field-label">Add person</span>
-            <input id="new-resource-name" class="field-input" placeholder="Name" />
+            <span class="field-label">Name</span>
+            <input id="new-resource-name" class="field-input" placeholder="e.g. Alex" />
           </label>
           <label class="field">
-            <span class="field-label">Team</span>
-            <input id="new-resource-team" class="field-input" placeholder="Engineering" />
+            <span class="field-label">Team (optional)</span>
+            <input id="new-resource-team" class="field-input" placeholder="e.g. Engineering" />
           </label>
           <label class="field">
-            <span class="field-label">Weekly hours</span>
+            <span class="field-label">Hours per week</span>
             <input id="new-resource-hours" class="field-input" type="number" value="32" />
           </label>
           <div class="field" style="align-self:end">
@@ -399,13 +400,16 @@ function renderSettings() {
         </div>
         <table class="data-table" id="resources-table">
           <thead><tr><th>Name</th><th>Team</th><th>Weekly h</th><th>Active</th></tr></thead>
-          <tbody>${resourceRows || '<tr><td colspan="4">No resources yet.</td></tr>'}</tbody>
+          <tbody>${resourceRows || '<tr><td colspan="4">No one added yet — use the form above.</td></tr>'}</tbody>
         </table>
-        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Continue to Planner →</a></div>` : ''}
+        ${progress.setupComplete ? `<div class="btn-row" style="margin-top:14px"><a class="btn btn-refresh-solid" href="#/planner">Next: add your work in Planner →</a></div>` : ''}
       </section>
 
+      <p class="setup-optional-label omc-lead">Optional — you can skip these until later</p>
+
       <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Policy</h2>
+        <h2 class="omc-section-title">Planning rules</h2>
+        <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings. Most people can leave these as-is.</p>
         <div class="form-grid">
           <label class="field">
             <span class="field-label">Default weekly hours</span>
@@ -438,7 +442,8 @@ function renderSettings() {
       </section>
 
       <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">Assumptions</h2>
+        <h2 class="omc-section-title">Notes for this period</h2>
+        <p class="omc-lead" style="margin-bottom:10px">Anything the team should remember while planning (e.g. “Everyone at 80% in July”).</p>
         <div class="form-grid" style="margin-bottom:10px">
           <label class="field field-span-2">
             <span class="field-label">New assumption</span>
@@ -454,7 +459,8 @@ function renderSettings() {
       </section>
 
       <section class="panel" style="margin-bottom:16px">
-        <h2 class="omc-section-title">PTO / time off</h2>
+        <h2 class="omc-section-title">Time off</h2>
+        <p class="omc-lead" style="margin-bottom:12px">Add vacation or PTO so capacity does not count those days.</p>
         <div class="form-grid">
           <label class="field">
             <span class="field-label">Person</span>
