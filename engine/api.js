@@ -12,6 +12,9 @@ export async function apiFetch(path, { method = 'GET', body, token } = {}) {
   if (!res.ok) {
     const err = new Error(data.error || `Request failed (${res.status})`);
     err.status = res.status;
+    // 409s carry the rows that moved underneath us, which the caller needs to
+    // tell the user what changed rather than just that something did.
+    err.data = data;
     throw err;
   }
   return data;
@@ -88,6 +91,12 @@ export const resourcesApi = {
       body: { resources },
       token,
     }),
+  patchOne: (token, workspaceId, resource) =>
+    apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}`, {
+      method: 'PATCH',
+      body: { resources: [resource] },
+      token,
+    }),
   delete: (token, workspaceId, id) =>
     apiFetch(`/api/omc-resources?${workspaceQs(workspaceId)}&id=${encodeURIComponent(id)}`, {
       method: 'DELETE',
@@ -105,6 +114,13 @@ export const planItemsApi = {
   create: (token, body) => apiFetch('/api/omc-plan-items', { method: 'POST', body, token }),
   patch: (token, plan_items) =>
     apiFetch('/api/omc-plan-items', { method: 'PATCH', body: { plan_items }, token }),
+  /** Autosave path: one row, guarded by the updated_at it was loaded with. */
+  patchOne: (token, item, { force = false } = {}) =>
+    apiFetch('/api/omc-plan-items', {
+      method: 'PATCH',
+      body: { plan_items: [item], ...(force ? { force: true } : {}) },
+      token,
+    }),
   delete: (token, id) =>
     apiFetch(`/api/omc-plan-items?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
 };
@@ -118,6 +134,12 @@ export const dependenciesApi = {
   create: (token, body) => apiFetch('/api/omc-dependencies', { method: 'POST', body, token }),
   patch: (token, dependencies) =>
     apiFetch('/api/omc-dependencies', { method: 'PATCH', body: { dependencies }, token }),
+  patchOne: (token, dependency, { force = false } = {}) =>
+    apiFetch('/api/omc-dependencies', {
+      method: 'PATCH',
+      body: { dependencies: [dependency], ...(force ? { force: true } : {}) },
+      token,
+    }),
   delete: (token, id) =>
     apiFetch(`/api/omc-dependencies?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
   applyGateTemplate: (token, body) =>

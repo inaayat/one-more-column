@@ -836,7 +836,9 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
 }
 .mode-note strong { color: var(--ink); }
 
-.dirty-flag {
+/* Autosave feedback. The page-level indicator replaced the Save changes button,
+   so it has to be legible without being loud — it is on screen permanently. */
+.save-status {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   text-transform: uppercase;
@@ -845,7 +847,34 @@ textarea.input { resize: vertical; font-family: var(--font-mono); font-size: 0.8
   background: var(--band-tight-bg);
   padding: 3px 9px;
   border-radius: var(--radius-pill);
+  white-space: nowrap;
 }
+.save-status-idle,
+.save-status-ok {
+  color: var(--muted);
+  background: transparent;
+}
+.save-status-ok { color: var(--band-ok-fg); }
+.save-status-bad {
+  color: var(--band-over-fg);
+  background: var(--band-over-bg);
+}
+.save-status-warn {
+  color: var(--band-tight-fg);
+  background: var(--band-tight-bg);
+}
+
+/* Per-row state, so a failure points at the row it belongs to. */
+.planner-status { width: 1%; white-space: nowrap; }
+.row-status {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.row-status-bad { color: var(--band-over-fg); }
+.row-status-warn { color: var(--band-tight-fg); }
 
 .disclosure { border-top: 1px solid var(--line); padding-top: 12px; }
 .disclosure > summary {

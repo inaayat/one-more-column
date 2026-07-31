@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import {
   renderPlansView,
   renderPlannerView,
+  renderPlannerTable,
   renderCapacityView,
   renderTeamView,
   renderTaskTypesView,
@@ -54,10 +55,17 @@ const emptyState = {
   capacityGranularity: 'week',
   expandedRows: new Set(),
   expandedTaskTypes: new Set(),
-  isDirty: false,
-  teamDirty: false,
-  taskTypesDirty: false,
   rulesSectionOpen: false,
+  draft: {},
+  pendingRows: new Set(),
+  pendingResources: new Set(),
+  pendingTaskTypes: new Set(),
+  rowStatus: {},
+  resourceStatus: {},
+  saveStatus: null,
+  teamSaveStatus: null,
+  taskTypesSaveStatus: null,
+  undoStack: [],
   wizard: blankWizard(),
 };
 
@@ -192,9 +200,11 @@ const fullState = {
   changelog: [{ created_at: '2026-01-02T10:00:00Z', summary: 'Created plan' }],
   expandedRows: new Set(['p1']),
   expandedTaskTypes: new Set(['tt2', 'tt3']),
-  isDirty: true,
-  teamDirty: true,
-  taskTypesDirty: false,
+  draft: { newItemTitle: 'Half-typed row', importCsv: 'title,work_hours\nA,4' },
+  pendingRows: new Set(['p1']),
+  rowStatus: { p1: 'saving' },
+  saveStatus: 'saving',
+  undoStack: [{ key: 'planItem:p1:title' }],
 };
 
 const views = {
@@ -448,4 +458,124 @@ test('capacity explains itself rather than rendering an empty grid', () => {
 
   const noWork = renderCapacityView({ state: { ...fullState, planItems: [], capacity: null } });
   assert.ok(noWork.includes('href="#/planner"'), 'should point at the page that fixes it');
+});
+
+/* ── Autosave rendering ───────────────────────────────────────────────
+   Saving is no longer a button the user has to find. These pin down the
+   affordances that replaced it, and the regions autosave repaints on its own. */
+
+test('the manual Save changes buttons are gone from every page', () => {
+  for (const render of [
+    () => renderPlannerView({ state: fullState }),
+    () => renderTeamView({ state: fullState }),
+    () => renderTaskTypesView({ state: fullState }),
+  ]) {
+    const out = render();
+    assert.ok(!out.includes('Save changes'), 'a manual save button survived');
+    assert.ok(!out.includes('dirty-flag'), 'the unsaved-changes flag should be a save status now');
+  }
+});
+
+test('each autosaving page exposes the regions the save path repaints', () => {
+  const planner = renderPlannerView({ state: fullState });
+  assert.ok(planner.includes('data-section="planner-table"'));
+  assert.ok(planner.includes('data-section="planner-savebar"'));
+
+  const team = renderTeamView({ state: fullState });
+  assert.ok(team.includes('data-section="team-table"'));
+  assert.ok(team.includes('data-section="team-savebar"'));
+
+  const types = renderTaskTypesView({ state: fullState });
+  assert.ok(types.includes('data-section="task-types-table"'));
+  assert.ok(types.includes('data-section="task-types-savebar"'));
+});
+
+test('save status reflects what is happening, not a static label', () => {
+  const saving = renderPlannerView({ state: { ...fullState, saveStatus: 'saving' } });
+  assert.ok(saving.includes('Saving…'));
+
+  const idle = renderPlannerView({
+    state: { ...fullState, saveStatus: 'saved', pendingRows: new Set() },
+  });
+  assert.ok(idle.includes('All changes saved'));
+
+  const failed = renderPlannerView({
+    state: { ...fullState, saveStatus: 'failed', pendingRows: new Set() },
+  });
+  assert.ok(failed.includes("didn't save"));
+  assert.ok(failed.includes('id="retry-planner"'), 'a failure has to be retryable');
+
+  const clashed = renderPlannerView({
+    state: { ...fullState, saveStatus: 'conflict', pendingRows: new Set() },
+  });
+  assert.ok(clashed.includes('Someone else changed this plan'));
+  assert.ok(clashed.includes('id="retry-planner"'));
+});
+
+test('a row carries its own save state so a failure names the row', () => {
+  const out = renderPlannerView({
+    state: { ...fullState, rowStatus: { p1: 'failed' }, saveStatus: 'failed' },
+  });
+  assert.ok(out.includes('data-row-status="p1"'));
+  assert.ok(out.includes('Not saved'));
+});
+
+test('undo is offered only once there is something to undo', () => {
+  const withHistory = renderPlannerView({ state: fullState });
+  assert.match(withHistory, /id="undo-planner"(?![^>]*disabled)/, 'undo should be live');
+
+  const fresh = renderPlannerView({ state: { ...fullState, undoStack: [] } });
+  assert.match(fresh, /id="undo-planner"[^>]*disabled/, 'undo should be disabled with no history');
+});
+
+test('scratch inputs render from draft state so a repaint cannot blank them', () => {
+  const out = renderPlannerView({ state: fullState });
+  assert.ok(out.includes('value="Half-typed row"'), 'a half-typed quick-add row must survive');
+  assert.ok(out.includes('data-draft="newItemTitle"'));
+  assert.ok(out.includes('title,work_hours'), 'pasted CSV must survive a repaint');
+  assert.ok(out.includes('data-draft="importCsv"'));
+});
+
+test('draft values are escaped like any other user input', () => {
+  const out = renderPlannerView({
+    state: { ...fullState, draft: { newItemTitle: `<script>alert(1)</script>` } },
+  });
+  assert.ok(!out.includes('<script>alert(1)</script>'), 'draft text escaped into live markup');
+  assert.ok(out.includes('&lt;script&gt;'));
+});
+
+test('draft state falls back to the default when the user has typed nothing', () => {
+  const out = renderPlannerView({ state: { ...fullState, draft: {} } });
+  assert.ok(out.includes('value="8"'), 'the hours box keeps its 8-hour default');
+});
+
+test('the grid header, its rows, and the drawer all agree on a column count', () => {
+  const table = renderPlannerTable(fullState);
+  const headers = (table.match(/<th[\s>]/g) || []).length;
+  const firstRow = table.slice(table.indexOf('<tr class="planner-row'));
+  const cells = (firstRow.slice(0, firstRow.indexOf('</tr>')).match(/<td[\s>]/g) || []).length;
+
+  assert.equal(cells, headers, 'a row has a different number of cells than the header');
+  assert.ok(
+    table.includes(`colspan="${headers}"`),
+    `the drawer must span all ${headers} columns or the grid is visibly ragged`,
+  );
+});
+
+test('views survive a state with no autosave bookkeeping at all', () => {
+  // The wizard renders before any of this is populated, so nothing may assume it.
+  const bare = { ...fullState };
+  delete bare.draft;
+  delete bare.pendingRows;
+  delete bare.rowStatus;
+  delete bare.undoStack;
+  delete bare.saveStatus;
+
+  for (const render of [
+    () => renderPlannerView({ state: bare }),
+    () => renderTeamView({ state: bare }),
+    () => renderTaskTypesView({ state: bare }),
+  ]) {
+    assert.doesNotThrow(render);
+  }
 });
