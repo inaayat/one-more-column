@@ -1834,12 +1834,14 @@ function render() {
 
 async function boot() {
   const root = document.getElementById('app-root');
-  const auth = await initAuth();
-  state.auth = auth;
-
-  if (auth.configured && auth.user && !auth.token) await refreshToken(auth);
+  let auth;
 
   try {
+    auth = await initAuth();
+    state.auth = auth;
+
+    if (auth.configured && auth.user && !auth.token) await refreshToken(auth);
+
     if (!auth.signedIn || !auth.token) {
       root.innerHTML = renderSignIn(auth);
       wireAuthLink(auth);
@@ -1885,7 +1887,7 @@ async function boot() {
     render();
   } catch (err) {
     console.error(err);
-    if (err.status === 401 && auth.configured) {
+    if (err.status === 401 && auth?.configured) {
       auth.signedIn = false;
       auth.needsReauth = !!auth.user;
       root.innerHTML = renderSignIn(auth);
