@@ -62,6 +62,8 @@ const state = {
   dependencies: [],
   readiness: [],
   importPreview: null,
+  importCsvText: '',
+  importSectionOpen: false,
   changelog: [],
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
@@ -174,13 +176,25 @@ function captureWizardFields() {
 }
 
 function captureAll() {
+  const route = currentRoute();
+
+  // The pasted-CSV textarea is pure scratch input the server never populates,
+  // so unlike grid/team/wizard state there is no "stale vs fresh" conflict —
+  // capture it unconditionally or a re-render triggered by anything else
+  // (adding a row, previewing the import) silently empties it, which is what
+  // made "Import them" a no-op: the textarea it read from had already been
+  // recreated blank by the time the button was clicked.
+  if (route === 'planner') {
+    const csv = document.getElementById('import-csv');
+    if (csv) state.importCsvText = csv.value;
+  }
+
   // After a reload the DOM still holds the pre-reload markup, so capturing from
   // it would write stale values straight back over the fresh server data.
   if (state.skipCapture) {
     state.skipCapture = false;
     return;
   }
-  const route = currentRoute();
   if (route === 'planner') captureGridEdits();
   if (route === 'team') captureTeamEdits();
   if (route === 'plans' && state.wizard.open) captureWizardFields();
@@ -549,6 +563,10 @@ function wireWizardEvents() {
     captureWizardFields();
     wizard.person = { name: '', role: '', hours: '32' };
     wizard.step = 3;
+    // render() re-captures from the DOM before repainting (see captureAll());
+    // without this the still-stale inputs above would immediately overwrite
+    // the reset we just made.
+    state.skipCapture = true;
     render();
   });
 
@@ -565,6 +583,9 @@ function wireWizardEvents() {
       hours: Number(person.hours) || 32,
     });
     wizard.person = { name: '', role: '', hours: '32' };
+    // Same reason as wiz-skip above: skip the auto-recapture so the form
+    // actually clears instead of refilling itself from the old DOM values.
+    state.skipCapture = true;
     render();
     document.getElementById('wiz-person-name')?.focus();
   });
@@ -925,6 +946,9 @@ function wirePlannerEvents() {
         scenario_id: state.activeScenarioId,
         csv_text,
       });
+      // Keep the section open so the preview appears next to the CSV that
+      // produced it, instead of the disclosure snapping shut on render.
+      state.importSectionOpen = true;
       render();
     }),
   );
@@ -932,13 +956,22 @@ function wirePlannerEvents() {
   document.getElementById('confirm-import')?.addEventListener('click', () =>
     guard(async () => {
       const csv_text = document.getElementById('import-csv')?.value;
-      if (!csv_text) return;
+      if (!csv_text) {
+        toast('Paste some CSV first', 'warn');
+        return;
+      }
       await importApi.commit(state.token, {
         cycle_id: state.activeCycleId,
         scenario_id: state.activeScenarioId,
         csv_text,
       });
       state.importPreview = null;
+      // captureAll() unconditionally re-reads #import-csv on every render (see
+      // its comment), so clearing state.importCsvText alone would just get
+      // immediately overwritten by that re-read of the still-stale textarea.
+      // Clear the field itself; the next capture picks up the empty value.
+      const csvField = document.getElementById('import-csv');
+      if (csvField) csvField.value = '';
       await loadScenarioData();
       toast('Rows imported');
       render();
@@ -948,6 +981,10 @@ function wirePlannerEvents() {
   document.getElementById('cancel-import')?.addEventListener('click', () => {
     state.importPreview = null;
     render();
+  });
+
+  document.getElementById('import-disclosure')?.addEventListener('toggle', (e) => {
+    state.importSectionOpen = e.target.open;
   });
 
   document.getElementById('export-plan')?.addEventListener('click', () =>

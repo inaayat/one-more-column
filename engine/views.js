@@ -432,13 +432,13 @@ export function renderPlannerView({ state }) {
 
     <section class="panel">
       ${importPreview}
-      <details class="disclosure" style="border-top:none;padding-top:0">
+      <details class="disclosure" id="import-disclosure" style="border-top:none;padding-top:0"${state.importSectionOpen ? ' open' : ''}>
         <summary>Import, export, and drift</summary>
         <div class="disclosure-body">
           <label class="field">
             <span class="field-label">Paste CSV</span>
             <p class="field-hint">Columns: <span class="mono">title, work_hours, due_week, phase</span></p>
-            <textarea id="import-csv" class="input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1"></textarea>
+            <textarea id="import-csv" class="input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1">${escapeHtml(state.importCsvText || '')}</textarea>
           </label>
           <div class="btn-row">
             <button type="button" class="btn btn-ghost btn-sm" id="preview-import">Preview import</button>
