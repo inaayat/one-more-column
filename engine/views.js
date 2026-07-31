@@ -518,22 +518,6 @@ export function renderPlannerView({ state }) {
          </div>`
       : ''}
 
-    ${empty
-      ? `<div class="empty">
-           <span class="empty-title">Nothing listed yet</span>
-           <p class="empty-body">
-             ${progress.typesReady
-               ? `Add the first piece of work below. Give it hours and a due date and it will show up
-             on the capacity grid straight away — you don't need your team in place first.`
-               : `Your catalog isn't shaped yet. Define task types (fields and dependencies) first,
-             then add specific work items here.`}
-           </p>
-           ${!progress.typesReady
-             ? `<a class="btn btn-primary" href="#/task-types">Define task types</a>`
-             : ''}
-         </div>`
-      : ''}
-
     <section class="panel">
       <h2 class="section-title" style="margin-bottom:12px">Add work</h2>
       <div class="quick-add">
@@ -557,8 +541,21 @@ export function renderPlannerView({ state }) {
       </div>
     </section>
 
-    ${state.planItems.length
-      ? `<section class="panel panel-flush">
+    ${empty
+      ? `<div class="empty">
+           <span class="empty-title">Nothing listed yet</span>
+           <p class="empty-body">
+             ${progress.typesReady
+               ? `Use Add work above for the first item. Give it hours and a due date and it will show up
+             on the capacity grid straight away — you don't need your team in place first.`
+               : `Your catalog isn't shaped yet. Define task types (fields and dependencies) first,
+             then add specific work items here.`}
+           </p>
+           ${!progress.typesReady
+             ? `<a class="btn btn-primary" href="#/task-types">Define task types</a>`
+             : ''}
+         </div>`
+      : `<section class="panel panel-flush">
            <div class="table-scroll">
              <table class="table planner-table">
                <thead>
@@ -577,8 +574,7 @@ export function renderPlannerView({ state }) {
                <tbody>${rows}</tbody>
              </table>
            </div>
-         </section>`
-      : ''}
+         </section>`}
 
     <section class="panel">
       ${importPreview}

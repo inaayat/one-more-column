@@ -332,6 +332,30 @@ test('planner nudges toward Task types when the catalog is still defaults-only',
   assert.ok(out.includes('href="#/task-types"'));
 });
 
+test('planner puts Add work above the empty state', () => {
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    scenarios: [{ id: 's1', name: 'Default', status: 'active' }],
+    activeScenarioId: 's1',
+    taskTypes: [
+      {
+        id: 'tt1',
+        key: 'custom',
+        label: 'Custom',
+        fields: [{ id: 'f1', key: 'x', label: 'X', field_type: 'text' }],
+        gate_templates: [],
+      },
+    ],
+  };
+  const out = renderPlannerView({ state: planOnly });
+  const addAt = out.indexOf('Add work');
+  const emptyAt = out.indexOf('Nothing listed yet');
+  assert.ok(addAt >= 0 && emptyAt >= 0);
+  assert.ok(addAt < emptyAt, 'Add work should appear before the empty state');
+});
+
 test('capacity embeds planning rules as a disclosure, not a separate tab', () => {
   const out = renderCapacityView({ state: fullState });
   assert.ok(out.includes('id="rules-disclosure"'));
