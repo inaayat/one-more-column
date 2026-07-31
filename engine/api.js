@@ -120,6 +120,12 @@ export const dependenciesApi = {
     apiFetch('/api/omc-dependencies', { method: 'PATCH', body: { dependencies }, token }),
   delete: (token, id) =>
     apiFetch(`/api/omc-dependencies?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+  applyGateTemplate: (token, body) =>
+    apiFetch('/api/omc-dependencies', {
+      method: 'POST',
+      body: { action: 'apply-gate-template', ...body },
+      token,
+    }),
 };
 
 export const importApi = {
@@ -184,4 +190,26 @@ export const timeOffApi = {
     }),
   delete: (token, id) =>
     apiFetch(`/api/omc-time-off?id=${encodeURIComponent(id)}`, { method: 'DELETE', token }),
+};
+
+export const taskTypesApi = {
+  list: (token, workspaceId) =>
+    apiFetch(`/api/omc-task-types?${workspaceQs(workspaceId)}`, { token }),
+  create: (token, workspaceId, body) =>
+    apiFetch(`/api/omc-task-types?${workspaceQs(workspaceId)}`, {
+      method: 'POST',
+      body: { ...body, workspace_id: workspaceId },
+      token,
+    }),
+  patch: (token, workspaceId, body) =>
+    apiFetch(`/api/omc-task-types?${workspaceQs(workspaceId)}`, {
+      method: 'PATCH',
+      body: { ...body, workspace_id: workspaceId },
+      token,
+    }),
+  delete: (token, workspaceId, id) =>
+    apiFetch(`/api/omc-task-types?${workspaceQs(workspaceId)}&id=${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      token,
+    }),
 };

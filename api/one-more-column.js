@@ -13,6 +13,7 @@ import { handleAssumptions, handleChangelog } from '../lib/handlers/assumptions.
 import { handleAlerts } from '../lib/handlers/alerts.js';
 import { handleExport } from '../lib/handlers/export.js';
 import { handleTimeOff } from '../lib/handlers/time-off.js';
+import { handleTaskTypes } from '../lib/handlers/task-types.js';
 
 export default async function handler(req, res) {
   const route = String(req.query?.route || '').trim();
@@ -33,6 +34,8 @@ export default async function handler(req, res) {
       return handlePolicy(req, res);
     case 'resources':
       return handleResources(req, res);
+    case 'task-types':
+      return handleTaskTypes(req, res);
     case 'plan-items':
       return handlePlanItems(req, res);
     case 'capacity':

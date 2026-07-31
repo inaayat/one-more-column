@@ -97,17 +97,19 @@ export function promptDialog({
   placeholder = '',
   confirmLabel = 'Save',
   checkbox = null,
+  inputType = 'text',
 }) {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
     backdrop.className = 'modal-backdrop';
+    const typeAttr = inputType === 'date' ? 'type="date"' : 'type="text"';
     backdrop.innerHTML = `
       <form class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
         <h2 id="modal-title">${escapeHtml(title)}</h2>
         ${body ? `<p>${body}</p>` : ''}
         <label class="field">
           <span class="field-label">${escapeHtml(label)}</span>
-          <input class="input" id="modal-input" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" />
+          <input class="input" id="modal-input" ${typeAttr} value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" />
         </label>
         ${checkbox
           ? `<label style="display:flex;gap:8px;align-items:center;font-size:0.85rem;color:var(--muted)">
@@ -150,7 +152,7 @@ export function promptDialog({
     document.addEventListener('keydown', onKey);
     document.body.appendChild(backdrop);
     input.focus();
-    input.select();
+    if (inputType !== 'date') input.select();
   });
 }
 
