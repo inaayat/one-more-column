@@ -120,7 +120,7 @@ function captureGridEdits() {
     if (taskType !== undefined) item.attributes.task_type = taskType;
   }
 
-  // Detail drawers carry duration/phase plus the gate rows.
+  // Detail drawers carry duration/phase, custom type fields, plus the gate rows.
   for (const drawer of document.querySelectorAll('.gate-drawer[data-drawer-for]')) {
     const item = state.planItems.find((p) => p.id === drawer.dataset.drawerFor);
     if (!item) continue;
@@ -131,6 +131,20 @@ function captureGridEdits() {
       item.attributes.duration_days = days === '' ? undefined : Number(days);
     }
     if (phase !== undefined) item.phase = phase || null;
+
+    for (const el of drawer.querySelectorAll('[data-attr-field]')) {
+      const key = el.dataset.attrField;
+      if (!key) continue;
+      const raw = el.value;
+      if (raw === '' || raw == null) {
+        delete item.attributes[key];
+      } else if (el.type === 'number') {
+        const n = Number(raw);
+        item.attributes[key] = Number.isFinite(n) ? n : raw;
+      } else {
+        item.attributes[key] = raw;
+      }
+    }
 
     for (const gate of drawer.querySelectorAll('.gate-item[data-dep-id]')) {
       const dep = state.dependencies.find((d) => d.id === gate.dataset.depId);
@@ -847,7 +861,16 @@ function wirePlansEvents() {
 function wirePlannerEvents() {
   const table = document.querySelector('.planner-table');
   table?.addEventListener('input', markDirty);
-  table?.addEventListener('change', markDirty);
+  table?.addEventListener('change', (e) => {
+    markDirty();
+    if (e.target?.dataset?.field === 'task_type') {
+      const row = e.target.closest('.planner-row[data-id]');
+      if (row && state.expandedRows.has(row.dataset.id)) {
+        captureGridEdits();
+        render();
+      }
+    }
+  });
 
   document.getElementById('save-planner')?.addEventListener('click', (e) =>
     guard(() => withBusy(e.currentTarget, 'Saving…', () => savePlannerGrid()).then(render)),

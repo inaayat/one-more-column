@@ -205,6 +205,67 @@ function optionList(pairs, selected) {
     .join('');
 }
 
+/** Normalize select options: main stores string[]; tolerate {value,label} objects. */
+function fieldOptionPairs(options) {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((o) => {
+      if (o && typeof o === 'object') {
+        const value = String(o.value ?? o.label ?? '').trim();
+        const label = String(o.label ?? o.value ?? '').trim();
+        return value ? [value, label || value] : null;
+      }
+      const s = String(o).trim();
+      return s ? [s, s] : null;
+    })
+    .filter(Boolean);
+}
+
+function renderCustomTypeFields(matchedType, attrs) {
+  const fields = matchedType?.fields || [];
+  if (!fields.length) return '';
+
+  const inputs = fields
+    .map((field) => {
+      const value = attrs[field.key];
+      const strVal = value == null ? '' : String(value);
+      let control = '';
+      if (field.field_type === 'select') {
+        const pairs = fieldOptionPairs(field.options);
+        control = `<select class="input input-sm" data-attr-field="${escapeHtml(field.key)}" aria-label="${escapeHtml(field.label)}">
+          <option value="">—</option>
+          ${optionList(pairs, strVal)}
+        </select>`;
+      } else if (field.field_type === 'number') {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="number" step="any"
+          value="${escapeHtml(strVal)}" aria-label="${escapeHtml(field.label)}" />`;
+      } else if (field.field_type === 'date') {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="date"
+          value="${escapeHtml(strVal.slice(0, 10))}" aria-label="${escapeHtml(field.label)}" />`;
+      } else {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="text"
+          value="${escapeHtml(strVal)}" aria-label="${escapeHtml(field.label)}" />`;
+      }
+      return `
+        <label class="field">
+          <span class="field-label">${escapeHtml(field.label)}${field.required ? ' *' : ''}</span>
+          ${control}
+        </label>`;
+    })
+    .join('');
+
+  return `
+    <div class="gate-drawer-head" style="margin-top:4px">
+      <div>
+        <div class="gate-drawer-title">${escapeHtml(matchedType.label)} fields</div>
+        <p class="gate-drawer-hint">Tracked on this type — edit freely; values save with the row.</p>
+      </div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px">
+      ${inputs}
+    </div>`;
+}
+
 function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
   if (!expanded) return '';
 
@@ -270,6 +331,8 @@ function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
               <input class="input input-sm" data-field="phase" value="${escapeHtml(item.phase || '')}" placeholder="—" />
             </label>
           </div>
+
+          ${renderCustomTypeFields(matchedType, attrs)}
 
           <div class="gate-drawer-head">
             <div>
@@ -1160,8 +1223,8 @@ export function renderTaskTypesView({ state }) {
         <p class="eyebrow">Task types</p>
         <h1 class="page-title">Kinds of work</h1>
         <p class="page-lead">
-          Custom types for the Planner dropdown. Attach an ordered gate template and custom
-          fields to any type — fields map onto CSV import columns.
+          Custom types for the Planner dropdown. Attach fields (with value options) and
+          a gate template to any type — fields show on Planner rows and map onto CSV import.
         </p>
       </div>
       <div class="btn-row">
