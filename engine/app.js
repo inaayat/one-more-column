@@ -23,21 +23,35 @@ import {
   confirmDialog,
   promptDialog,
   withBusy,
-  captureFocus,
-  restoreFocus,
+  patchSection,
+  focusWithinSection,
 } from './shell.js';
 import {
   renderPlansView,
   renderPlannerView,
+  renderPlannerTable,
+  plannerSaveBar,
   renderCapacityView,
   renderTeamView,
+  teamSaveBar,
   renderTaskTypesView,
+  renderTaskTypesTable,
+  taskTypesSaveBar,
   renderGuideView,
+  rowStatusHtml,
   planOptions,
   workspaceOptions,
 } from './views.js';
 import { renderWizard, blankWizard, validateStep } from './wizard.js';
 import { getInitialRoute, resolveRoute, navItems, normalizeRoute, postPlanRoute } from './setup.js';
+import {
+  planItemPatch,
+  dependencyPatch,
+  resourcePatch,
+  taskTypePatch,
+  policyConfig,
+  slugifyFieldKey,
+} from './patches.js';
 
 const APP_PATH = '/one-more-column/';
 const WORKSPACE_KEY = 'omc_active_workspace_id';
@@ -62,24 +76,45 @@ const state = {
   dependencies: [],
   readiness: [],
   importPreview: null,
-  importCsvText: '',
   importSectionOpen: false,
   importTaskTypeId: '',
   rulesSectionOpen: false,
   changelog: [],
   activeTeamFilter: '',
   capacityGranularity: 'week',
-  /** Set after a server reload so the next render doesn't re-read the old DOM. */
-  skipCapture: false,
 
   /** Rows whose detail drawer is open, kept across re-renders. */
   expandedRows: new Set(),
   /** Task types whose gate-template drawer is open. */
   expandedTaskTypes: new Set(),
-  /** Unsaved edits pending in the planner grid / team table / task types. */
-  isDirty: false,
-  teamDirty: false,
-  taskTypesDirty: false,
+
+  /** Scratch input values — quick-add rows, pasted CSV, threshold fields.
+   *  Written through on every keystroke so a repaint redraws them instead of
+   *  needing to read them back out of the DOM first. */
+  draft: {},
+
+  /** Rows with a save in flight or queued, per page. */
+  pendingRows: new Set(),
+  pendingResources: new Set(),
+  pendingTaskTypes: new Set(),
+  /** id → kind, so a queued save knows which endpoint to call. */
+  targetKinds: new Map(),
+  /** Rows the server refused because someone else got there first. */
+  conflictRows: new Set(),
+  /** Rows whose save failed outright. Still pending, so Retry has something. */
+  failedRows: new Set(),
+
+  /** Per-row save state, keyed by id, rendered into the row's status cell. */
+  rowStatus: {},
+  resourceStatus: {},
+  /** Page-level save state: saving | saved | failed | conflict. */
+  saveStatus: null,
+  teamSaveStatus: null,
+  taskTypesSaveStatus: null,
+
+  /** Reversible field edits, newest last. */
+  undoStack: [],
+
   redirectedFrom: null,
   wizard: blankWizard(),
 };
@@ -95,222 +130,515 @@ function navigate(route) {
   location.hash = `#/${route}`;
 }
 
-/* ── Capturing in-flight edits ────────────────────────────────────────
-   render() replaces innerHTML wholesale. Before it does, anything the user has
-   typed but not saved has to be pulled back into state, or deleting one row
-   silently discards every edit made to the others. */
+/* ── Write-through binding ────────────────────────────────────────────
+   Every input writes its value straight into state as it is typed, so state is
+   always the truth and nothing ever has to be read back out of the DOM. That
+   removes the two workarounds this layer replaced: a capture pass before each
+   render, and a focus snapshot/restore around it. */
 
-function captureGridEdits() {
-  for (const row of document.querySelectorAll('.planner-row[data-id]')) {
-    const item = state.planItems.find((p) => p.id === row.dataset.id);
-    if (!item) continue;
-    const read = (field) => row.querySelector(`[data-field="${field}"]`)?.value;
+const WIZARD_FIELDS = {
+  'wiz-name': ['name'],
+  'wiz-start': ['start'],
+  'wiz-end': ['end'],
+  'wiz-new-workspace': ['newWorkspaceName'],
+  'wiz-person-name': ['person', 'name'],
+  'wiz-person-role': ['person', 'role'],
+  'wiz-person-hours': ['person', 'hours'],
+};
 
-    item.title = read('title') ?? item.title;
-    item.work_hours = Number(read('work_hours') ?? item.work_hours) || 0;
-    item.due_week = read('due_week') || null;
-    item.attributes = { ...(item.attributes || {}) };
-    const startDate = read('start_date');
-    if (startDate !== undefined) item.attributes.start_date = startDate || null;
-    const taskType = read('task_type');
-    if (taskType !== undefined) item.attributes.task_type = taskType;
-  }
-
-  // Detail drawers carry duration/phase, custom type fields, plus the gate rows.
-  for (const drawer of document.querySelectorAll('.gate-drawer[data-drawer-for]')) {
-    const item = state.planItems.find((p) => p.id === drawer.dataset.drawerFor);
-    if (!item) continue;
-    const days = drawer.querySelector('[data-field="duration_days"]')?.value;
-    const phase = drawer.querySelector('[data-field="phase"]')?.value;
-    item.attributes = { ...(item.attributes || {}) };
-    if (days !== undefined) {
-      item.attributes.duration_days = days === '' ? undefined : Number(days);
-    }
-    if (phase !== undefined) item.phase = phase || null;
-
-    for (const el of drawer.querySelectorAll('[data-attr-field]')) {
-      const key = el.dataset.attrField;
-      if (!key) continue;
-      const raw = el.value;
-      if (raw === '' || raw == null) {
-        delete item.attributes[key];
-      } else if (el.type === 'number') {
-        const n = Number(raw);
-        item.attributes[key] = Number.isFinite(n) ? n : raw;
-      } else {
-        item.attributes[key] = raw;
-      }
-    }
-
-    for (const gate of drawer.querySelectorAll('.gate-item[data-dep-id]')) {
-      const dep = state.dependencies.find((d) => d.id === gate.dataset.depId);
-      if (!dep) continue;
-      const read = (field) => gate.querySelector(`[data-field="${field}"]`)?.value;
-      dep.label = read('label') ?? dep.label;
-      dep.from_plan_item_id = read('from_plan_item_id') || null;
-      dep.status = read('dep_status') ?? dep.status;
-      dep.dep_type = read('dep_type') ?? dep.dep_type;
-      const due = read('dep_due');
-      if (due !== undefined) dep.meta = due ? { ...(dep.meta || {}), due_date: due } : {};
-    }
-  }
+function numberOrUndefined(raw) {
+  if (raw === '' || raw == null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : undefined;
 }
 
-function captureTeamEdits() {
-  for (const row of document.querySelectorAll('.table tbody tr[data-id]')) {
-    const resource = state.resources.find((r) => r.id === row.dataset.id);
-    if (!resource) continue;
-    const name = row.querySelector('[data-field="name"]')?.value;
-    const team = row.querySelector('[data-field="team"]')?.value;
-    const hours = row.querySelector('[data-field="weekly_hours"]')?.value;
-    if (name === undefined && hours === undefined) continue;
-
-    if (name !== undefined) resource.name = name;
-    if (team !== undefined) resource.team = team || null;
-    if (hours !== undefined) {
-      const weekly = Number(hours) || 0;
-      if (resource.profiles?.length) resource.profiles[0].weekly_hours = weekly;
-      else resource.profiles = [{ weekly_hours: weekly }];
-    }
-  }
+function setAttribute(item, key, value) {
+  item.attributes = { ...(item.attributes || {}) };
+  if (value === undefined || value === null || value === '') delete item.attributes[key];
+  else item.attributes[key] = value;
 }
 
-function captureTaskTypeEdits() {
-  for (const row of document.querySelectorAll('#task-types-table tbody tr[data-id]')) {
-    const type = state.taskTypes.find((t) => t.id === row.dataset.id);
-    if (!type) continue;
-    const label = row.querySelector('[data-field="label"]')?.value;
-    if (label !== undefined) type.label = label;
+/** Writes one element's value into state. Returns the row to save, if any. */
+function applyEdit(el) {
+  const draftKey = el.dataset.draft;
+  if (draftKey) {
+    state.draft[draftKey] = el.type === 'checkbox' ? el.checked : el.value;
+    return null;
   }
 
-  for (const row of document.querySelectorAll('#task-types-table tr[data-step-id]')) {
-    const type = state.taskTypes.find((t) => t.id === row.dataset.typeId);
-    if (!type) continue;
-    const step = (type.gate_templates || []).find((s) => s.id === row.dataset.stepId);
-    if (!step) continue;
-    const label = row.querySelector('[data-step-field="label"]')?.value;
-    const days = row.querySelector('[data-step-field="duration_days"]')?.value;
-    const dayKind = row.querySelector('[data-step-field="day_kind"]')?.value;
-    const depType = row.querySelector('[data-step-field="dep_type"]')?.value;
-    if (label !== undefined) step.label = label;
-    if (days !== undefined) step.duration_days = Number(days) || 1;
-    if (dayKind !== undefined) step.day_kind = dayKind;
-    if (depType !== undefined) step.dep_type = depType;
+  const wizardPath = WIZARD_FIELDS[el.id];
+  if (wizardPath) {
+    const [head, tail] = wizardPath;
+    if (tail) state.wizard[head][tail] = el.value;
+    else state.wizard[head] = el.value;
+    return null;
   }
 
-  for (const row of document.querySelectorAll('#task-types-table tr[data-field-id]')) {
-    const type = state.taskTypes.find((t) => t.id === row.dataset.typeId);
-    if (!type) continue;
-    const field = (type.fields || []).find((f) => f.id === row.dataset.fieldId);
-    if (!field) continue;
-    const label = row.querySelector('[data-custom-field="label"]')?.value;
-    const fieldType = row.querySelector('[data-custom-field="field_type"]')?.value;
-    const optionsRaw = row.querySelector('[data-custom-field="options"]')?.value;
-    const required = row.querySelector('[data-custom-field="required"]')?.checked;
-    if (label !== undefined) field.label = label;
-    if (fieldType !== undefined) field.field_type = fieldType;
-    if (optionsRaw !== undefined) {
-      field.options = optionsRaw
+  const gate = el.closest('.gate-item[data-dep-id]');
+  if (gate) return applyDependencyEdit(gate.dataset.depId, el);
+
+  const drawer = el.closest('.gate-drawer[data-drawer-for]');
+  if (drawer && el.closest('#task-types-table')) return applyTaskTypeEdit(el);
+  if (drawer) return applyPlanItemEdit(drawer.dataset.drawerFor, el);
+
+  if (el.closest('#task-types-table')) return applyTaskTypeEdit(el);
+
+  const plannerRow = el.closest('.planner-row[data-id]');
+  if (plannerRow) return applyPlanItemEdit(plannerRow.dataset.id, el);
+
+  const teamRow = el.closest('[data-section="team-table"] tr[data-id]');
+  if (teamRow) return applyResourceEdit(teamRow.dataset.id, el);
+
+  return null;
+}
+
+function snapshotPlanItem(item) {
+  return {
+    title: item.title,
+    work_hours: item.work_hours,
+    due_week: item.due_week,
+    phase: item.phase,
+    attributes: { ...(item.attributes || {}) },
+  };
+}
+
+function applyPlanItemEdit(id, el) {
+  const item = state.planItems.find((p) => p.id === id);
+  if (!item) return null;
+  const before = snapshotPlanItem(item);
+  const field = el.dataset.field;
+  const attrField = el.dataset.attrField;
+
+  if (attrField) {
+    const raw = el.value;
+    setAttribute(item, attrField, el.type === 'number' ? numberOrUndefined(raw) : raw);
+  } else if (field === 'title') {
+    item.title = el.value;
+  } else if (field === 'work_hours') {
+    item.work_hours = Number(el.value) || 0;
+  } else if (field === 'due_week') {
+    item.due_week = el.value || null;
+  } else if (field === 'phase') {
+    item.phase = el.value || null;
+  } else if (field === 'start_date') {
+    setAttribute(item, 'start_date', el.value);
+  } else if (field === 'task_type') {
+    setAttribute(item, 'task_type', el.value);
+  } else if (field === 'duration_days') {
+    setAttribute(item, 'duration_days', numberOrUndefined(el.value));
+  } else {
+    return null;
+  }
+
+  pushUndo({
+    key: `planItem:${id}:${attrField || field}`,
+    restore: () => {
+      const live = state.planItems.find((p) => p.id === id);
+      if (live) Object.assign(live, before, { attributes: { ...before.attributes } });
+    },
+    target: { kind: 'planItem', id },
+  });
+  return { kind: 'planItem', id };
+}
+
+function applyDependencyEdit(id, el) {
+  const dep = state.dependencies.find((d) => d.id === id);
+  if (!dep) return null;
+  const before = { label: dep.label, from_plan_item_id: dep.from_plan_item_id, status: dep.status, dep_type: dep.dep_type, meta: { ...(dep.meta || {}) } };
+  const field = el.dataset.field;
+
+  if (field === 'label') dep.label = el.value;
+  else if (field === 'from_plan_item_id') dep.from_plan_item_id = el.value || null;
+  else if (field === 'dep_status') dep.status = el.value;
+  else if (field === 'dep_type') dep.dep_type = el.value;
+  else if (field === 'dep_due') dep.meta = el.value ? { ...(dep.meta || {}), due_date: el.value } : {};
+  else return null;
+
+  pushUndo({
+    key: `dependency:${id}:${field}`,
+    restore: () => {
+      const live = state.dependencies.find((d) => d.id === id);
+      if (live) Object.assign(live, before, { meta: { ...before.meta } });
+    },
+    target: { kind: 'dependency', id },
+  });
+  return { kind: 'dependency', id };
+}
+
+function applyResourceEdit(id, el) {
+  const resource = state.resources.find((r) => r.id === id);
+  if (!resource) return null;
+  const field = el.dataset.field;
+
+  if (field === 'name') resource.name = el.value;
+  else if (field === 'team') resource.team = el.value || null;
+  else if (field === 'weekly_hours') {
+    const weekly = Number(el.value) || 0;
+    if (resource.profiles?.length) resource.profiles[0].weekly_hours = weekly;
+    else resource.profiles = [{ weekly_hours: weekly }];
+  } else return null;
+
+  return { kind: 'resource', id };
+}
+
+function applyTaskTypeEdit(el) {
+  const stepRow = el.closest('tr[data-step-id]');
+  if (stepRow) {
+    const type = state.taskTypes.find((t) => t.id === stepRow.dataset.typeId);
+    const step = (type?.gate_templates || []).find((s) => s.id === stepRow.dataset.stepId);
+    if (!step) return null;
+    const field = el.dataset.stepField;
+    if (field === 'label') step.label = el.value;
+    else if (field === 'duration_days') step.duration_days = Number(el.value) || 1;
+    else if (field === 'day_kind') step.day_kind = el.value;
+    else if (field === 'dep_type') step.dep_type = el.value;
+    else return null;
+    return { kind: 'taskType', id: type.id };
+  }
+
+  const fieldRow = el.closest('tr[data-field-id]');
+  if (fieldRow) {
+    const type = state.taskTypes.find((t) => t.id === fieldRow.dataset.typeId);
+    const field = (type?.fields || []).find((f) => f.id === fieldRow.dataset.fieldId);
+    if (!field) return null;
+    const which = el.dataset.customField;
+    if (which === 'label') field.label = el.value;
+    else if (which === 'field_type') field.field_type = el.value;
+    else if (which === 'options') {
+      field.options = el.value
         .split(',')
         .map((o) => o.trim())
         .filter(Boolean);
-    }
-    if (required !== undefined) field.required = Boolean(required);
-  }
-}
-
-/** Client-side mirror of the server slugify used for field keys. */
-function slugifyFieldKey(label) {
-  return String(label || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_|_$/g, '')
-    .slice(0, 64);
-}
-
-function captureWizardFields() {
-  const wizard = state.wizard;
-  const val = (id) => document.getElementById(id)?.value;
-  if (wizard.step === 1) {
-    wizard.name = val('wiz-name') ?? wizard.name;
-    wizard.start = val('wiz-start') ?? wizard.start;
-    wizard.end = val('wiz-end') ?? wizard.end;
-    wizard.newWorkspaceName = val('wiz-new-workspace') ?? wizard.newWorkspaceName;
-  } else if (wizard.step === 2) {
-    wizard.person = {
-      name: val('wiz-person-name') ?? wizard.person.name,
-      role: val('wiz-person-role') ?? wizard.person.role,
-      hours: val('wiz-person-hours') ?? wizard.person.hours,
-    };
-  }
-}
-
-function captureAll() {
-  const route = currentRoute();
-
-  // The pasted-CSV textarea is pure scratch input the server never populates,
-  // so unlike grid/team/wizard state there is no "stale vs fresh" conflict —
-  // capture it unconditionally or a re-render triggered by anything else
-  // (adding a row, previewing the import) silently empties it, which is what
-  // made "Import them" a no-op: the textarea it read from had already been
-  // recreated blank by the time the button was clicked.
-  if (route === 'planner') {
-    const csv = document.getElementById('import-csv');
-    if (csv) state.importCsvText = csv.value;
-    const typeSel = document.getElementById('import-task-type');
-    if (typeSel) state.importTaskTypeId = typeSel.value || '';
+    } else if (which === 'required') field.required = Boolean(el.checked);
+    else return null;
+    return { kind: 'taskType', id: type.id };
   }
 
-  // After a reload the DOM still holds the pre-reload markup, so capturing from
-  // it would write stale values straight back over the fresh server data.
-  if (state.skipCapture) {
-    state.skipCapture = false;
+  const typeRow = el.closest('tr[data-id]');
+  if (typeRow && el.dataset.field === 'label') {
+    const type = state.taskTypes.find((t) => t.id === typeRow.dataset.id);
+    if (!type) return null;
+    type.label = el.value;
+    return { kind: 'taskType', id: type.id };
+  }
+
+  return null;
+}
+
+/* ── Undo ─────────────────────────────────────────────────────────────
+   Autosave means a mistyped cell is persisted a moment later, so there has to
+   be a way back. Consecutive edits to the same field collapse into one entry so
+   Undo steps over a word, not a letter. */
+
+const UNDO_COALESCE_MS = 1500;
+const UNDO_LIMIT = 50;
+
+function pushUndo(entry) {
+  const last = state.undoStack[state.undoStack.length - 1];
+  const now = Date.now();
+  if (last && last.key === entry.key && now - last.at < UNDO_COALESCE_MS) {
+    last.at = now;
     return;
   }
-  if (route === 'planner') captureGridEdits();
-  if (route === 'team') captureTeamEdits();
-  if (route === 'task-types') captureTaskTypeEdits();
-  if (route === 'plans' && state.wizard.open) captureWizardFields();
+  state.undoStack.push({ ...entry, at: now });
+  if (state.undoStack.length > UNDO_LIMIT) state.undoStack.shift();
 }
 
-/** Persists pending grid edits before any action that reloads from the server. */
-async function flushPendingEdits() {
-  captureGridEdits();
-  if (state.isDirty) await savePlannerGrid({ silent: true });
+function undoLast() {
+  const entry = state.undoStack.pop();
+  if (!entry) return;
+  entry.restore();
+  repaintPlanner();
+  queueSave(entry.target, { immediate: true });
 }
 
-function markDirty() {
-  if (state.isDirty) return;
-  state.isDirty = true;
-  const save = document.getElementById('save-planner');
-  if (save) save.disabled = false;
-  const bar = save?.closest('.btn-row');
-  if (bar && !bar.querySelector('.dirty-flag')) {
-    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
+/* ── Autosave ─────────────────────────────────────────────────────────
+   Edits save themselves a short pause after typing stops, one row at a time, so
+   a failure names the row it belongs to instead of failing the whole grid. */
+
+const SAVE_DEBOUNCE_MS = 700;
+const SAVED_BADGE_MS = 2000;
+const saveTimers = new Map();
+
+function pendingSetFor(kind) {
+  if (kind === 'resource') return state.pendingResources;
+  if (kind === 'taskType') return state.pendingTaskTypes;
+  return state.pendingRows;
+}
+
+function statusBagFor(kind) {
+  return kind === 'resource' ? state.resourceStatus : state.rowStatus;
+}
+
+function setRowStatus(kind, id, status) {
+  const bag = statusBagFor(kind);
+  if (status) bag[id] = status;
+  else delete bag[id];
+
+  const cell = document.querySelector(`[data-row-status="${CSS.escape(id)}"]`);
+  if (cell) cell.innerHTML = rowStatusHtml(status);
+
+  if (status === 'saved') {
+    setTimeout(() => {
+      if (bag[id] !== 'saved') return;
+      delete bag[id];
+      const later = document.querySelector(`[data-row-status="${CSS.escape(id)}"]`);
+      if (later) later.innerHTML = '';
+    }, SAVED_BADGE_MS);
   }
 }
 
-function markTeamDirty() {
-  if (state.teamDirty) return;
-  state.teamDirty = true;
-  const save = document.getElementById('save-team');
-  if (save) save.disabled = false;
-  const bar = save?.closest('.btn-row');
-  if (bar && !bar.querySelector('.dirty-flag')) {
-    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
+function setPageStatus(kind, status) {
+  if (kind === 'resource') state.teamSaveStatus = status;
+  else if (kind === 'taskType') state.taskTypesSaveStatus = status;
+  else state.saveStatus = status;
+  updateSaveBars();
+}
+
+/** Repaints the save indicators, skipping any the user is focused inside. */
+function updateSaveBars() {
+  if (!focusWithinSection('planner-savebar')) patchSection('planner-savebar', plannerSaveBar(state));
+  if (!focusWithinSection('team-savebar')) patchSection('team-savebar', teamSaveBar(state));
+  if (!focusWithinSection('task-types-savebar')) {
+    patchSection('task-types-savebar', taskTypesSaveBar(state));
   }
 }
 
-function markTaskTypesDirty() {
-  if (state.taskTypesDirty) return;
-  state.taskTypesDirty = true;
-  const save = document.getElementById('save-task-types');
-  if (save) save.disabled = false;
-  const bar = save?.closest('.btn-row');
-  if (bar && !bar.querySelector('.dirty-flag')) {
-    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
+function queueSave(target, { immediate = false } = {}) {
+  if (!target) return;
+  const key = `${target.kind}:${target.id}`;
+  pendingSetFor(target.kind).add(target.id);
+  state.targetKinds.set(target.id, target.kind);
+  setPageStatus(target.kind, null);
+
+  clearTimeout(saveTimers.get(key));
+  if (immediate) {
+    saveTimers.delete(key);
+    guard(() => saveTarget(target));
+    return;
   }
+  saveTimers.set(
+    key,
+    setTimeout(() => {
+      saveTimers.delete(key);
+      guard(() => saveTarget(target));
+    }, SAVE_DEBOUNCE_MS),
+  );
+}
+
+async function saveTarget(target, { force = false } = {}) {
+  if (target.kind === 'planItem') return savePlanItemRow(target.id, { force });
+  if (target.kind === 'dependency') return saveDependencyRow(target.id, { force });
+  if (target.kind === 'resource') return saveResourceRow(target.id);
+  if (target.kind === 'taskType') return saveTaskTypeRow(target.id);
+  return undefined;
+}
+
+/** Settles the page indicator. A row that failed stays pending and stays loud. */
+function settle(kind) {
+  const pending = pendingSetFor(kind);
+  const ids = [...pending];
+  if (ids.some((id) => state.conflictRows.has(id))) {
+    setPageStatus(kind, 'conflict');
+    return;
+  }
+  if (ids.some((id) => state.failedRows.has(id))) {
+    setPageStatus(kind, 'failed');
+    return;
+  }
+  setPageStatus(kind, pending.size ? null : 'saved');
+}
+
+/**
+ * A failed row is deliberately left in the pending set: it is still unsaved, so
+ * Retry has something to act on and the unload warning still fires.
+ */
+function onSaveFailure(kind, id, err) {
+  pendingSetFor(kind).add(id);
+  state.targetKinds.set(id, kind);
+
+  if (err.status === 409) {
+    state.conflictRows.add(id);
+    setRowStatus(kind, id, 'conflict');
+    setPageStatus(kind, 'conflict');
+    // Adopt the server's guard so Retry is a deliberate overwrite rather than
+    // another rejection.
+    const current = err.data?.conflicts?.[0]?.current;
+    if (current) adoptGuard(kind, id, current.updated_at);
+    toast(
+      'Someone else changed this row. Retry to keep your version, or reload to see theirs.',
+      'warn',
+      6000,
+    );
+    return;
+  }
+
+  state.failedRows.add(id);
+  setRowStatus(kind, id, 'failed');
+  setPageStatus(kind, 'failed');
+  toast(err.message || "That change didn't save", 'error');
+}
+
+function adoptGuard(kind, id, updatedAt) {
+  if (!updatedAt) return;
+  const list = kind === 'dependency' ? state.dependencies : state.planItems;
+  const row = list.find((r) => r.id === id);
+  if (row) row.updated_at = updatedAt;
+}
+
+async function savePlanItemRow(id, { force = false } = {}) {
+  const item = state.planItems.find((p) => p.id === id);
+  if (!item) {
+    state.pendingRows.delete(id);
+    settle('planItem');
+    return;
+  }
+
+  setRowStatus('planItem', id, 'saving');
+  setPageStatus('planItem', 'saving');
+  try {
+    const { plan_items } = await planItemsApi.patchOne(state.token, planItemPatch(item), { force });
+    if (plan_items?.[0]) item.updated_at = plan_items[0].updated_at;
+    state.pendingRows.delete(id);
+    state.conflictRows.delete(id);
+    state.failedRows.delete(id);
+    setRowStatus('planItem', id, 'saved');
+    settle('planItem');
+  } catch (err) {
+    state.pendingRows.delete(id);
+    onSaveFailure('planItem', id, err);
+  }
+}
+
+async function saveDependencyRow(id, { force = false } = {}) {
+  const dep = state.dependencies.find((d) => d.id === id);
+  if (!dep) {
+    state.pendingRows.delete(id);
+    settle('dependency');
+    return;
+  }
+
+  setRowStatus('dependency', id, 'saving');
+  setPageStatus('dependency', 'saving');
+  try {
+    const { dependencies } = await dependenciesApi.patchOne(state.token, dependencyPatch(dep), {
+      force,
+    });
+    if (dependencies?.[0]) dep.updated_at = dependencies[0].updated_at;
+    state.pendingRows.delete(id);
+    state.conflictRows.delete(id);
+    state.failedRows.delete(id);
+    setRowStatus('dependency', id, 'saved');
+    // Gates drive the readiness column, so refresh it once the write lands.
+    await loadDependencies();
+    repaintPlanner();
+    settle('dependency');
+  } catch (err) {
+    state.pendingRows.delete(id);
+    onSaveFailure('dependency', id, err);
+  }
+}
+
+async function saveResourceRow(id) {
+  const resource = state.resources.find((r) => r.id === id);
+  if (!resource) {
+    state.pendingResources.delete(id);
+    settle('resource');
+    return;
+  }
+
+  setRowStatus('resource', id, 'saving');
+  setPageStatus('resource', 'saving');
+  try {
+    await resourcesApi.patchOne(state.token, state.activeWorkspaceId, resourcePatch(resource));
+    state.pendingResources.delete(id);
+    state.failedRows.delete(id);
+    setRowStatus('resource', id, 'saved');
+    settle('resource');
+  } catch (err) {
+    state.pendingResources.delete(id);
+    onSaveFailure('resource', id, err);
+  }
+}
+
+async function saveTaskTypeRow(id) {
+  const type = state.taskTypes.find((t) => t.id === id);
+  if (!type) {
+    state.pendingTaskTypes.delete(id);
+    settle('taskType');
+    return;
+  }
+
+  setPageStatus('taskType', 'saving');
+  try {
+    await taskTypesApi.patch(state.token, state.activeWorkspaceId, taskTypePatch(type));
+    state.pendingTaskTypes.delete(id);
+    state.failedRows.delete(id);
+    settle('taskType');
+  } catch (err) {
+    state.pendingTaskTypes.delete(id);
+    onSaveFailure('taskType', id, err);
+  }
+}
+
+/** Runs every queued save now. Used before anything that reloads from server. */
+async function flushSaves() {
+  const targets = [
+    ...[...state.pendingRows],
+    ...[...state.pendingResources],
+    ...[...state.pendingTaskTypes],
+  ].map((id) => ({ kind: state.targetKinds.get(id) || 'planItem', id }));
+
+  for (const target of targets) {
+    const key = `${target.kind}:${target.id}`;
+    clearTimeout(saveTimers.get(key));
+    saveTimers.delete(key);
+    await saveTarget(target);
+  }
+}
+
+/**
+ * Re-sends whatever didn't land. A row that lost a race is forced, because
+ * clicking Retry is the user saying to keep their version; a row that merely
+ * failed is retried under its original guard.
+ */
+async function retryFailed(kind) {
+  const ids = [...pendingSetFor(kind)].filter(
+    (id) => state.conflictRows.has(id) || state.failedRows.has(id),
+  );
+  for (const id of ids) {
+    const force = state.conflictRows.has(id);
+    await saveTarget({ kind: state.targetKinds.get(id) || 'planItem', id }, { force });
+  }
+  settle(kind);
+}
+
+function repaintPlanner() {
+  patchSection('planner-table', renderPlannerTable(state));
+  updateSaveBars();
+}
+
+function clearSaveState() {
+  for (const timer of saveTimers.values()) clearTimeout(timer);
+  saveTimers.clear();
+  state.pendingRows.clear();
+  state.pendingResources.clear();
+  state.pendingTaskTypes.clear();
+  state.conflictRows.clear();
+  state.failedRows.clear();
+  state.targetKinds.clear();
+  state.rowStatus = {};
+  state.resourceStatus = {};
+  state.saveStatus = null;
+  state.teamSaveStatus = null;
+  state.taskTypesSaveStatus = null;
+  state.undoStack = [];
+}
+
+function hasUnsavedWork() {
+  return Boolean(
+    state.pendingRows.size || state.pendingResources.size || state.pendingTaskTypes.size,
+  );
 }
 
 /* ── Data loading ─────────────────────────────────────────────────────── */
@@ -360,9 +688,7 @@ async function loadCoreData() {
   state.resources = resources;
   state.teams = teams;
   state.taskTypes = task_types || [];
-  state.teamDirty = false;
-  state.taskTypesDirty = false;
-  state.skipCapture = true;
+  clearSaveState();
 
   if (state.activeCycleId && !cycles.some((c) => c.id === state.activeCycleId)) {
     state.activeCycleId = null;
@@ -409,8 +735,7 @@ async function loadScenarioData() {
     state.dependencies = [];
     state.readiness = [];
   }
-  state.isDirty = false;
-  state.skipCapture = true;
+  clearSaveState();
 }
 
 async function loadDependencies() {
@@ -457,81 +782,6 @@ async function loadForRoute(route) {
   if (route === 'capacity') {
     await Promise.all([loadCapacity(), loadChangelog()]);
   }
-}
-
-/* ── Saving ───────────────────────────────────────────────────────────── */
-
-async function savePlannerGrid({ silent = false } = {}) {
-  captureGridEdits();
-
-  const plan_items = state.planItems.map((item) => ({
-    id: item.id,
-    title: item.title,
-    phase: item.phase || null,
-    work_hours: Number(item.work_hours) || 0,
-    due_week: item.due_week || null,
-    attributes: item.attributes || {},
-  }));
-
-  const dependencies = state.dependencies.map((dep) => ({
-    id: dep.id,
-    from_plan_item_id: dep.from_plan_item_id || null,
-    dep_type: dep.dep_type,
-    label: dep.label || null,
-    status: dep.status,
-    meta: dep.meta || {},
-  }));
-
-  if (plan_items.length) await planItemsApi.patch(state.token, plan_items);
-  if (dependencies.length) await dependenciesApi.patch(state.token, dependencies);
-
-  state.isDirty = false;
-  await loadScenarioData();
-  if (!silent) toast('Plan saved');
-}
-
-async function saveTeam() {
-  captureTeamEdits();
-  const resources = state.resources.map((r) => ({
-    id: r.id,
-    name: r.name,
-    team: r.team || null,
-    weekly_hours: Number(r.profiles?.[0]?.weekly_hours) || null,
-  }));
-  if (resources.length) await resourcesApi.patch(state.token, state.activeWorkspaceId, resources);
-  state.teamDirty = false;
-  await loadCoreData();
-  toast('Team saved');
-}
-
-async function saveTaskTypes() {
-  captureTaskTypeEdits();
-  for (const type of state.taskTypes) {
-    await taskTypesApi.patch(state.token, state.activeWorkspaceId, {
-      id: type.id,
-      label: type.label,
-      gate_templates: (type.gate_templates || []).map((s, i) => ({
-        id: s.id,
-        label: s.label,
-        duration_days: Number(s.duration_days) || 1,
-        day_kind: s.day_kind || 'business',
-        dep_type: s.dep_type || 'input_ready',
-        seq: i + 1,
-      })),
-      fields: (type.fields || []).map((f, i) => ({
-        id: f.id,
-        key: f.key,
-        label: f.label,
-        field_type: f.field_type || 'text',
-        options: f.field_type === 'select' ? f.options || [] : null,
-        required: Boolean(f.required),
-        seq: i + 1,
-      })),
-    });
-  }
-  state.taskTypesDirty = false;
-  await loadCoreData();
-  toast('Task types saved');
 }
 
 /* ── Wizard ───────────────────────────────────────────────────────────── */
@@ -602,20 +852,13 @@ async function createPlanFromWizard(button) {
 function wireWizardEvents() {
   const wizard = state.wizard;
 
-  const rerender = () => {
-    captureWizardFields();
-    render();
-  };
-
   document.getElementById('wiz-show-workspace')?.addEventListener('click', () => {
-    captureWizardFields();
     wizard.showWorkspace = true;
     render();
   });
 
   document.querySelectorAll('[data-ws-mode]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      captureWizardFields();
       wizard.useNewWorkspace = btn.dataset.wsMode === 'new';
       render();
     });
@@ -628,26 +871,20 @@ function wireWizardEvents() {
 
   document.querySelectorAll('input[name="wiz-granularity"]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      captureWizardFields();
       wizard.granularity = radio.value;
       render();
     });
   });
 
-  // Keep the plain-English summary in step with what's typed, but only once
-  // the field is actually done being edited. A native date input reports
-  // `change` mid-keystroke while a segment is still incomplete — most often
-  // while typing the year, since it needs 4 digits against 2 for month/day.
-  // Re-rendering on that recreates the <input>, which resets focus to its
-  // first segment: type "2026" and after the first "2" the next keystroke
-  // lands back on the month instead of continuing the year. `blur` only fires
-  // once the user actually leaves the field, so no re-render happens mid-type.
+  // The plain-English summary only needs refreshing once a field is done being
+  // edited. Repainting mid-keystroke used to reset a date input's caret to its
+  // first segment; binding writes state through on every keystroke, so `blur`
+  // is now purely about when the summary text catches up.
   ['wiz-name', 'wiz-start', 'wiz-end'].forEach((id) => {
-    document.getElementById(id)?.addEventListener('blur', rerender);
+    document.getElementById(id)?.addEventListener('blur', () => render());
   });
 
   document.getElementById('wiz-next')?.addEventListener('click', () => {
-    captureWizardFields();
     const errors = validateStep(wizard, wizard.step);
     wizard.errors = errors;
     if (Object.keys(errors).length) {
@@ -659,24 +896,17 @@ function wireWizardEvents() {
   });
 
   document.getElementById('wiz-back')?.addEventListener('click', () => {
-    captureWizardFields();
     wizard.step = Math.max(1, wizard.step - 1);
     render();
   });
 
   document.getElementById('wiz-skip')?.addEventListener('click', () => {
-    captureWizardFields();
     wizard.person = { name: '', role: '', hours: '32' };
     wizard.step = 3;
-    // render() re-captures from the DOM before repainting (see captureAll());
-    // without this the still-stale inputs above would immediately overwrite
-    // the reset we just made.
-    state.skipCapture = true;
     render();
   });
 
   document.getElementById('wiz-add-person')?.addEventListener('click', () => {
-    captureWizardFields();
     const person = wizard.person;
     if (!person.name.trim()) {
       document.getElementById('wiz-person-name')?.focus();
@@ -688,16 +918,12 @@ function wireWizardEvents() {
       hours: Number(person.hours) || 32,
     });
     wizard.person = { name: '', role: '', hours: '32' };
-    // Same reason as wiz-skip above: skip the auto-recapture so the form
-    // actually clears instead of refilling itself from the old DOM values.
-    state.skipCapture = true;
     render();
     document.getElementById('wiz-person-name')?.focus();
   });
 
   document.querySelectorAll('[data-remove-person]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      captureWizardFields();
       wizard.people.splice(Number(btn.dataset.removePerson), 1);
       render();
     });
@@ -728,10 +954,285 @@ function guard(fn) {
   }
 }
 
+/* ── Delegated events ─────────────────────────────────────────────────
+   Regions that repaint on their own — the two grids and the save indicators —
+   can't own their listeners, because replacing their markup would throw those
+   listeners away. One listener on the app root outlives every repaint. */
+
+function repaintTaskTypes() {
+  patchSection('task-types-table', renderTaskTypesTable(state));
+  updateSaveBars();
+}
+
+/** Puts the caret back after a repaint the user's own change triggered. */
+function refocus(rowId, selector) {
+  if (!rowId) return;
+  const el = document.querySelector(`[data-id="${CSS.escape(rowId)}"] ${selector}`);
+  el?.focus();
+}
+
+function onDelegatedEdit(e) {
+  const el = e.target;
+  if (!el?.matches?.('input, select, textarea')) return;
+
+  const target = applyEdit(el);
+  if (target) queueSave(target);
+
+  // Two selects change what their neighbours should render, so they repaint the
+  // grid they live in. Both are `change` on a select, so nothing is mid-typing.
+  if (e.type !== 'change') return;
+
+  if (el.dataset.field === 'task_type') {
+    const row = el.closest('.planner-row[data-id]');
+    if (row && state.expandedRows.has(row.dataset.id)) {
+      repaintPlanner();
+      refocus(row.dataset.id, '[data-field="task_type"]');
+    }
+    return;
+  }
+
+  if (el.dataset.customField === 'field_type') {
+    const row = el.closest('tr[data-field-id]');
+    repaintTaskTypes();
+    if (row) {
+      const fresh = document.querySelector(
+        `tr[data-field-id="${CSS.escape(row.dataset.fieldId)}"] [data-custom-field="field_type"]`,
+      );
+      fresh?.focus();
+    }
+  }
+}
+
+function onDelegatedClick(e) {
+  const el = e.target.closest('button');
+  if (!el) return;
+  const d = el.dataset;
+
+  if (el.id === 'undo-planner') return void undoLast();
+  if (el.id === 'retry-planner') {
+    return void guard(() => withBusy(el, 'Retrying…', () => retryFailed('planItem')));
+  }
+  if (el.id === 'retry-team') {
+    return void guard(() => withBusy(el, 'Retrying…', () => retryFailed('resource')));
+  }
+  if (el.id === 'retry-task-types') {
+    return void guard(() => withBusy(el, 'Retrying…', () => retryFailed('taskType')));
+  }
+
+  if (d.toggleRow) {
+    const id = d.toggleRow;
+    if (state.expandedRows.has(id)) state.expandedRows.delete(id);
+    else state.expandedRows.add(id);
+    // Only the grid changed, so anything being typed elsewhere is left alone.
+    return void repaintPlanner();
+  }
+
+  if (d.toggleType) {
+    const id = d.toggleType;
+    if (state.expandedTaskTypes.has(id)) state.expandedTaskTypes.delete(id);
+    else state.expandedTaskTypes.add(id);
+    return void repaintTaskTypes();
+  }
+
+  if (d.addGate) return void guard(() => addGate(d.addGate));
+  if (d.applyGateTemplate) {
+    return void guard(() => applyGateTemplate(d.applyGateTemplate, d.taskTypeId));
+  }
+  if (d.deleteGate) return void guard(() => deleteGate(d.deleteGate));
+  if (d.deleteItem) return void guard(() => deletePlanItem(d.deleteItem));
+  if (d.deleteResource) return void guard(() => deleteResource(d.deleteResource));
+  if (d.deleteTaskType) return void guard(() => deleteTaskType(d.deleteTaskType));
+  if (d.addStep) return void guard(() => addGateStep(d.addStep));
+  if (d.deleteStep) return void guard(() => deleteGateStep(d.typeId, d.deleteStep));
+  if (d.addField) return void guard(() => addCustomField(d.addField));
+  if (d.deleteField) return void guard(() => deleteCustomField(d.typeId, d.deleteField));
+}
+
+/* ── Planner row actions ──────────────────────────────────────────────── */
+
+async function addGate(planItemId) {
+  await flushSaves();
+  await dependenciesApi.create(state.token, {
+    cycle_id: state.activeCycleId,
+    to_plan_item_id: planItemId,
+    dep_type: 'input_ready',
+    label: '',
+  });
+  state.expandedRows.add(planItemId);
+  await loadScenarioData();
+  repaintPlanner();
+}
+
+async function applyGateTemplate(itemId, taskTypeId) {
+  const item = state.planItems.find((p) => p.id === itemId);
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultAnchor =
+    (item?.attributes?.start_date && String(item.attributes.start_date).slice(0, 10)) || today;
+
+  const result = await promptDialog({
+    title: 'Apply gate template',
+    body: 'Due dates are chained from this anchor — each step starts after the previous one finishes. You can edit any gate afterward.',
+    label: 'Anchor date',
+    value: defaultAnchor,
+    confirmLabel: 'Create gates',
+    inputType: 'date',
+  });
+  if (!result) return;
+
+  await flushSaves();
+  const { count } = await dependenciesApi.applyGateTemplate(state.token, {
+    plan_item_id: itemId,
+    task_type_id: taskTypeId,
+    anchor_date: result.value,
+  });
+  state.expandedRows.add(itemId);
+  await loadScenarioData();
+  toast(`Added ${count} gate${count === 1 ? '' : 's'}`);
+  repaintPlanner();
+}
+
+async function deleteGate(depId) {
+  await flushSaves();
+  await dependenciesApi.delete(state.token, depId);
+  await loadScenarioData();
+  toast('Gate removed');
+  repaintPlanner();
+}
+
+async function deletePlanItem(id) {
+  const item = state.planItems.find((p) => p.id === id);
+  const ok = await confirmDialog({
+    title: 'Delete this row?',
+    body: `"${escapeHtml(item?.title || 'Untitled')}" and any gates on it will be removed.`,
+    confirmLabel: 'Delete row',
+    danger: true,
+  });
+  if (!ok) return;
+  await flushSaves();
+  await planItemsApi.delete(state.token, id);
+  state.expandedRows.delete(id);
+  await loadScenarioData();
+  toast('Row deleted');
+  repaintPlanner();
+}
+
+/* ── Team row actions ─────────────────────────────────────────────────── */
+
+async function deleteResource(id) {
+  const resource = state.resources.find((r) => r.id === id);
+  const ok = await confirmDialog({
+    title: `Remove ${resource?.name || 'this person'}?`,
+    body: 'Their time off goes too, and they disappear from the capacity grid.',
+    confirmLabel: 'Remove',
+    danger: true,
+  });
+  if (!ok) return;
+  await flushSaves();
+  await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
+  await loadCoreData();
+  toast('Person removed');
+  render();
+}
+
+/* ── Task type actions ────────────────────────────────────────────────── */
+
+async function deleteTaskType(id) {
+  const type = state.taskTypes.find((t) => t.id === id);
+  const ok = await confirmDialog({
+    title: `Delete ${type?.label || 'this type'}?`,
+    body: 'Its gate template and custom fields go too. Existing plan rows keep their type key, but the dropdown option disappears.',
+    confirmLabel: 'Delete type',
+    danger: true,
+  });
+  if (!ok) return;
+  await flushSaves();
+  await taskTypesApi.delete(state.token, state.activeWorkspaceId, id);
+  state.expandedTaskTypes.delete(id);
+  await loadCoreData();
+  toast('Type deleted');
+  render();
+}
+
+async function addGateStep(typeId) {
+  const label = String(state.draft[`newStepLabel:${typeId}`] || '').trim();
+  if (!label) {
+    document.querySelector(`[data-new-step-label="${CSS.escape(typeId)}"]`)?.focus();
+    toast('Give the step a name first', 'warn');
+    return;
+  }
+  const type = state.taskTypes.find((t) => t.id === typeId);
+  if (!type) return;
+
+  if (!type.gate_templates) type.gate_templates = [];
+  type.gate_templates.push({
+    id: crypto.randomUUID(),
+    task_type_id: typeId,
+    seq: type.gate_templates.length + 1,
+    label,
+    duration_days: Number(state.draft[`newStepDays:${typeId}`] ?? 7) || 7,
+    day_kind: state.draft[`newStepKind:${typeId}`] || 'business',
+    dep_type: 'input_ready',
+  });
+  state.expandedTaskTypes.add(typeId);
+  state.draft[`newStepLabel:${typeId}`] = '';
+
+  // Structural changes persist straight away rather than waiting out the
+  // debounce, so a refresh can't lose a step that is already on screen.
+  await saveTaskTypeRow(typeId);
+  repaintTaskTypes();
+}
+
+async function deleteGateStep(typeId, stepId) {
+  const type = state.taskTypes.find((t) => t.id === typeId);
+  if (!type) return;
+  type.gate_templates = (type.gate_templates || []).filter((s) => s.id !== stepId);
+  await saveTaskTypeRow(typeId);
+  toast('Step removed');
+  repaintTaskTypes();
+}
+
+async function addCustomField(typeId) {
+  const label = String(state.draft[`newFieldLabel:${typeId}`] || '').trim();
+  if (!label) {
+    document.querySelector(`[data-new-field-label="${CSS.escape(typeId)}"]`)?.focus();
+    toast('Give the field a label first', 'warn');
+    return;
+  }
+  const type = state.taskTypes.find((t) => t.id === typeId);
+  if (!type) return;
+
+  const fieldType = state.draft[`newFieldType:${typeId}`] || 'text';
+  if (!type.fields) type.fields = [];
+  type.fields.push({
+    id: crypto.randomUUID(),
+    task_type_id: typeId,
+    key: slugifyFieldKey(label) || `field_${type.fields.length + 1}`,
+    label,
+    field_type: fieldType,
+    options: fieldType === 'select' ? [] : null,
+    required: false,
+    seq: type.fields.length + 1,
+  });
+  state.expandedTaskTypes.add(typeId);
+  state.draft[`newFieldLabel:${typeId}`] = '';
+
+  await saveTaskTypeRow(typeId);
+  repaintTaskTypes();
+}
+
+async function deleteCustomField(typeId, fieldId) {
+  const type = state.taskTypes.find((t) => t.id === typeId);
+  if (!type) return;
+  type.fields = (type.fields || []).filter((f) => f.id !== fieldId);
+  await saveTaskTypeRow(typeId);
+  toast('Field removed');
+  repaintTaskTypes();
+}
+
 function wireContextEvents() {
   document.getElementById('ctx-cycle')?.addEventListener('change', (e) => {
     guard(async () => {
-      await flushPendingEdits();
+      await flushSaves();
       state.activeCycleId = e.target.value || null;
       state.activeScenarioId = null;
       localStorage.removeItem(SCENARIO_KEY);
@@ -744,7 +1245,7 @@ function wireContextEvents() {
   const switchWorkspace = (workspaceId) =>
     guard(async () => {
       if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
-      await flushPendingEdits();
+      await flushSaves();
       state.activeWorkspaceId = workspaceId;
       state.activeCycleId = null;
       state.activeScenarioId = null;
@@ -840,137 +1341,28 @@ function wirePlansEvents() {
 /* ── Planner events ───────────────────────────────────────────────────── */
 
 function wirePlannerEvents() {
-  const table = document.querySelector('.planner-table');
-  table?.addEventListener('input', markDirty);
-  table?.addEventListener('change', (e) => {
-    markDirty();
-    if (e.target?.dataset?.field === 'task_type') {
-      const row = e.target.closest('.planner-row[data-id]');
-      if (row && state.expandedRows.has(row.dataset.id)) {
-        captureGridEdits();
-        render();
-      }
-    }
-  });
-
-  document.getElementById('save-planner')?.addEventListener('click', (e) =>
-    guard(() => withBusy(e.currentTarget, 'Saving…', () => savePlannerGrid()).then(render)),
-  );
-
-  document.querySelectorAll('[data-toggle-row]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      captureGridEdits();
-      const id = btn.dataset.toggleRow;
-      if (state.expandedRows.has(id)) state.expandedRows.delete(id);
-      else state.expandedRows.add(id);
-      render();
-    });
-  });
-
-  document.querySelectorAll('[data-add-gate]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        await flushPendingEdits();
-        await dependenciesApi.create(state.token, {
-          cycle_id: state.activeCycleId,
-          to_plan_item_id: btn.dataset.addGate,
-          dep_type: 'input_ready',
-          label: '',
-        });
-        state.expandedRows.add(btn.dataset.addGate);
-        await loadScenarioData();
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-apply-gate-template]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        captureGridEdits();
-        const itemId = btn.dataset.applyGateTemplate;
-        const taskTypeId = btn.dataset.taskTypeId;
-        const item = state.planItems.find((p) => p.id === itemId);
-        const today = new Date().toISOString().slice(0, 10);
-        const defaultAnchor =
-          (item?.attributes?.start_date && String(item.attributes.start_date).slice(0, 10)) || today;
-
-        const result = await promptDialog({
-          title: 'Apply gate template',
-          body: 'Due dates are chained from this anchor — each step starts after the previous one finishes. You can edit any gate afterward.',
-          label: 'Anchor date',
-          value: defaultAnchor,
-          confirmLabel: 'Create gates',
-          inputType: 'date',
-        });
-        if (!result) return;
-
-        await flushPendingEdits();
-        const { count } = await dependenciesApi.applyGateTemplate(state.token, {
-          plan_item_id: itemId,
-          task_type_id: taskTypeId,
-          anchor_date: result.value,
-        });
-        state.expandedRows.add(itemId);
-        await loadScenarioData();
-        toast(`Added ${count} gate${count === 1 ? '' : 's'}`);
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-delete-gate]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        await flushPendingEdits();
-        await dependenciesApi.delete(state.token, btn.dataset.deleteGate);
-        await loadScenarioData();
-        toast('Gate removed');
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-delete-item]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        const id = btn.dataset.deleteItem;
-        const item = state.planItems.find((p) => p.id === id);
-        const ok = await confirmDialog({
-          title: 'Delete this row?',
-          body: `"${escapeHtml(item?.title || 'Untitled')}" and any gates on it will be removed.`,
-          confirmLabel: 'Delete row',
-          danger: true,
-        });
-        if (!ok) return;
-        await flushPendingEdits();
-        await planItemsApi.delete(state.token, id);
-        state.expandedRows.delete(id);
-        await loadScenarioData();
-        toast('Row deleted');
-        render();
-      }),
-    );
-  });
-
   document.getElementById('add-plan-item')?.addEventListener('click', (e) =>
     guard(async () => {
-      const title = document.getElementById('new-item-title')?.value?.trim();
+      const title = String(state.draft.newItemTitle || '').trim();
       if (!title) {
         document.getElementById('new-item-title')?.focus();
         toast('Give the row a name first', 'warn');
         return;
       }
       await withBusy(e.currentTarget, 'Adding…', async () => {
-        await flushPendingEdits();
+        await flushSaves();
         await planItemsApi.create(state.token, {
           cycle_id: state.activeCycleId,
           scenario_id: state.activeScenarioId,
           title,
-          work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
-          due_week: document.getElementById('new-item-due')?.value || null,
-          attributes: { task_type: document.getElementById('new-item-type')?.value || 'general' },
+          work_hours: Number(state.draft.newItemHours ?? 8) || 0,
+          due_week: state.draft.newItemDue || null,
+          attributes: { task_type: state.draft.newItemType || 'general' },
         });
+        // Clearing the draft is what empties the form — the inputs render from
+        // it, so there is no separate DOM reset to keep in step.
+        state.draft.newItemTitle = '';
+        state.draft.newItemDue = '';
         await loadScenarioData();
         render();
         document.getElementById('new-item-title')?.focus();
@@ -980,7 +1372,7 @@ function wirePlannerEvents() {
 
   const switchScenario = (mode) =>
     guard(async () => {
-      await flushPendingEdits();
+      await flushSaves();
       if (mode === 'live') {
         const live = state.scenarios.find((s) => s.status === 'active');
         if (!live) {
@@ -1006,7 +1398,7 @@ function wirePlannerEvents() {
 
   document.getElementById('scenario-select')?.addEventListener('change', (e) =>
     guard(async () => {
-      await flushPendingEdits();
+      await flushSaves();
       state.activeScenarioId = e.target.value || null;
       if (state.activeScenarioId) localStorage.setItem(SCENARIO_KEY, state.activeScenarioId);
       await loadScenarioData();
@@ -1028,7 +1420,7 @@ function wirePlannerEvents() {
       });
       if (!result) return;
 
-      await flushPendingEdits();
+      await flushSaves();
       const { scenario } = await scenariosApi.create(state.token, {
         cycle_id: state.activeCycleId,
         name: result.value,
@@ -1051,7 +1443,7 @@ function wirePlannerEvents() {
         confirmLabel: 'Make it live',
       });
       if (!ok) return;
-      await flushPendingEdits();
+      await flushSaves();
       await scenariosApi.patch(state.token, { id: state.activeScenarioId, status: 'active' });
       await loadScenarioData();
       toast('This is now the live plan');
@@ -1085,13 +1477,12 @@ function wirePlannerEvents() {
 
   document.getElementById('preview-import')?.addEventListener('click', () =>
     guard(async () => {
-      const csv_text = document.getElementById('import-csv')?.value;
+      const csv_text = state.draft.importCsv;
       if (!csv_text?.trim()) {
         toast('Paste some CSV first', 'warn');
         return;
       }
-      const task_type_id = document.getElementById('import-task-type')?.value || '';
-      state.importTaskTypeId = task_type_id;
+      const task_type_id = state.importTaskTypeId || '';
       state.importPreview = await importApi.preview(state.token, {
         cycle_id: state.activeCycleId,
         scenario_id: state.activeScenarioId,
@@ -1107,13 +1498,12 @@ function wirePlannerEvents() {
 
   document.getElementById('confirm-import')?.addEventListener('click', () =>
     guard(async () => {
-      const csv_text = document.getElementById('import-csv')?.value;
+      const csv_text = state.draft.importCsv;
       if (!csv_text) {
         toast('Paste some CSV first', 'warn');
         return;
       }
-      const task_type_id =
-        state.importTaskTypeId || document.getElementById('import-task-type')?.value || '';
+      const task_type_id = state.importTaskTypeId || '';
       await importApi.commit(state.token, {
         cycle_id: state.activeCycleId,
         scenario_id: state.activeScenarioId,
@@ -1121,12 +1511,7 @@ function wirePlannerEvents() {
         ...(task_type_id ? { task_type_id } : {}),
       });
       state.importPreview = null;
-      // captureAll() unconditionally re-reads #import-csv on every render (see
-      // its comment), so clearing state.importCsvText alone would just get
-      // immediately overwritten by that re-read of the still-stale textarea.
-      // Clear the field itself; the next capture picks up the empty value.
-      const csvField = document.getElementById('import-csv');
-      if (csvField) csvField.value = '';
+      state.draft.importCsv = '';
       await loadScenarioData();
       toast('Rows imported');
       render();
@@ -1247,30 +1632,23 @@ function wireCapacityEvents() {
 /* ── Team events ──────────────────────────────────────────────────────── */
 
 function wireTeamEvents() {
-  const table = document.querySelector('.table');
-  table?.addEventListener('input', markTeamDirty);
-  table?.addEventListener('change', markTeamDirty);
-
-  document.getElementById('save-team')?.addEventListener('click', (e) =>
-    guard(() => withBusy(e.currentTarget, 'Saving…', saveTeam).then(render)),
-  );
-
   document.getElementById('add-resource')?.addEventListener('click', (e) =>
     guard(async () => {
-      const name = document.getElementById('new-resource-name')?.value?.trim();
+      const name = String(state.draft.newResourceName || '').trim();
       if (!name) {
         document.getElementById('new-resource-name')?.focus();
         toast('Give the person a name first', 'warn');
         return;
       }
       await withBusy(e.currentTarget, 'Adding…', async () => {
-        captureTeamEdits();
-        if (state.teamDirty) await saveTeam();
+        await flushSaves();
         await resourcesApi.create(state.token, state.activeWorkspaceId, {
           name,
-          team: document.getElementById('new-resource-team')?.value?.trim() || null,
-          weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
+          team: String(state.draft.newResourceTeam || '').trim() || null,
+          weekly_hours: Number(state.draft.newResourceHours ?? 32) || 32,
         });
+        state.draft.newResourceName = '';
+        state.draft.newResourceTeam = '';
         await loadCoreData();
         render();
         document.getElementById('new-resource-name')?.focus();
@@ -1278,31 +1656,10 @@ function wireTeamEvents() {
     }),
   );
 
-  document.querySelectorAll('[data-delete-resource]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        const id = btn.dataset.deleteResource;
-        const resource = state.resources.find((r) => r.id === id);
-        const ok = await confirmDialog({
-          title: `Remove ${resource?.name || 'this person'}?`,
-          body: 'Their time off goes too, and they disappear from the capacity grid.',
-          confirmLabel: 'Remove',
-          danger: true,
-        });
-        if (!ok) return;
-        await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
-        state.teamDirty = false;
-        await loadCoreData();
-        toast('Person removed');
-        render();
-      }),
-    );
-  });
-
   document.getElementById('add-pto')?.addEventListener('click', (e) =>
     guard(async () => {
-      const start = document.getElementById('pto-start')?.value;
-      const end = document.getElementById('pto-end')?.value;
+      const start = state.draft.ptoStart;
+      const end = state.draft.ptoEnd;
       if (!start || !end) {
         toast('Pick both a start and an end date', 'warn');
         return;
@@ -1316,9 +1673,12 @@ function wireTeamEvents() {
           resource_id: document.getElementById('pto-resource')?.value,
           start_date: start,
           end_date: end,
-          hours_per_day: document.getElementById('pto-hours')?.value || null,
+          hours_per_day: state.draft.ptoHours || null,
           reason: 'PTO',
         });
+        state.draft.ptoStart = '';
+        state.draft.ptoEnd = '';
+        state.draft.ptoHours = '';
         await loadCoreData();
         toast('Time off booked');
         render();
@@ -1341,206 +1701,34 @@ function wireTeamEvents() {
 /* ── Task type events ─────────────────────────────────────────────────── */
 
 function wireTaskTypesEvents() {
-  const table = document.getElementById('task-types-table');
-  table?.addEventListener('input', markTaskTypesDirty);
-  table?.addEventListener('change', (e) => {
-    markTaskTypesDirty();
-    // Field-type changes enable/disable the options input — re-render so that
-    // (and the summary counts) stay in sync with what the user just picked.
-    if (e.target?.matches?.('[data-custom-field="field_type"]')) {
-      captureTaskTypeEdits();
-      render();
-    }
-  });
-
-  document.getElementById('save-task-types')?.addEventListener('click', (e) =>
-    guard(() => withBusy(e.currentTarget, 'Saving…', saveTaskTypes).then(render)),
-  );
-
   document.getElementById('add-task-type')?.addEventListener('click', (e) =>
     guard(async () => {
-      const label = document.getElementById('new-task-type-label')?.value?.trim();
+      const label = String(state.draft.newTaskTypeLabel || '').trim();
       if (!label) {
         document.getElementById('new-task-type-label')?.focus();
         toast('Give the type a name first', 'warn');
         return;
       }
       await withBusy(e.currentTarget, 'Adding…', async () => {
-        captureTaskTypeEdits();
-        if (state.taskTypesDirty) await saveTaskTypes();
+        await flushSaves();
         const { task_type } = await taskTypesApi.create(state.token, state.activeWorkspaceId, {
           label,
         });
         state.expandedTaskTypes.add(task_type.id);
+        state.draft.newTaskTypeLabel = '';
         await loadCoreData();
         render();
         document.getElementById('new-task-type-label')?.focus();
       });
     }),
   );
-
-  document.querySelectorAll('[data-toggle-type]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      captureTaskTypeEdits();
-      const id = btn.dataset.toggleType;
-      if (state.expandedTaskTypes.has(id)) state.expandedTaskTypes.delete(id);
-      else state.expandedTaskTypes.add(id);
-      render();
-    });
-  });
-
-  document.querySelectorAll('[data-delete-task-type]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        const id = btn.dataset.deleteTaskType;
-        const type = state.taskTypes.find((t) => t.id === id);
-        const ok = await confirmDialog({
-          title: `Delete ${type?.label || 'this type'}?`,
-          body: 'Its gate template and custom fields go too. Existing plan rows keep their type key, but the dropdown option disappears.',
-          confirmLabel: 'Delete type',
-          danger: true,
-        });
-        if (!ok) return;
-        await taskTypesApi.delete(state.token, state.activeWorkspaceId, id);
-        state.expandedTaskTypes.delete(id);
-        state.taskTypesDirty = false;
-        await loadCoreData();
-        toast('Type deleted');
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-add-step]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        const typeId = btn.dataset.addStep;
-        const labelInput = document.querySelector(`[data-new-step-label="${typeId}"]`);
-        const label = labelInput?.value?.trim();
-        if (!label) {
-          labelInput?.focus();
-          toast('Give the step a name first', 'warn');
-          return;
-        }
-        captureTaskTypeEdits();
-        const type = state.taskTypes.find((t) => t.id === typeId);
-        if (!type) return;
-        const days = Number(document.querySelector(`[data-new-step-days="${typeId}"]`)?.value) || 7;
-        const dayKind =
-          document.querySelector(`[data-new-step-kind="${typeId}"]`)?.value || 'business';
-        if (!type.gate_templates) type.gate_templates = [];
-        type.gate_templates.push({
-          id: crypto.randomUUID(),
-          task_type_id: typeId,
-          seq: type.gate_templates.length + 1,
-          label,
-          duration_days: days,
-          day_kind: dayKind,
-          dep_type: 'input_ready',
-        });
-        state.expandedTaskTypes.add(typeId);
-        markTaskTypesDirty();
-        // Persist immediately so a refresh doesn't lose the new step, matching
-        // how team PTO creates server-side rather than only dirty-tracking.
-        await saveTaskTypes();
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-delete-step]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        captureTaskTypeEdits();
-        const typeId = btn.dataset.typeId;
-        const stepId = btn.dataset.deleteStep;
-        const type = state.taskTypes.find((t) => t.id === typeId);
-        if (!type) return;
-        type.gate_templates = (type.gate_templates || []).filter((s) => s.id !== stepId);
-        markTaskTypesDirty();
-        await saveTaskTypes();
-        toast('Step removed');
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-add-field]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        const typeId = btn.dataset.addField;
-        const labelInput = document.querySelector(`[data-new-field-label="${typeId}"]`);
-        const label = labelInput?.value?.trim();
-        if (!label) {
-          labelInput?.focus();
-          toast('Give the field a label first', 'warn');
-          return;
-        }
-        captureTaskTypeEdits();
-        const type = state.taskTypes.find((t) => t.id === typeId);
-        if (!type) return;
-        const fieldType =
-          document.querySelector(`[data-new-field-type="${typeId}"]`)?.value || 'text';
-        if (!type.fields) type.fields = [];
-        type.fields.push({
-          id: crypto.randomUUID(),
-          task_type_id: typeId,
-          key: slugifyFieldKey(label) || `field_${type.fields.length + 1}`,
-          label,
-          field_type: fieldType,
-          options: fieldType === 'select' ? [] : null,
-          required: false,
-          seq: type.fields.length + 1,
-        });
-        state.expandedTaskTypes.add(typeId);
-        markTaskTypesDirty();
-        await saveTaskTypes();
-        render();
-      }),
-    );
-  });
-
-  document.querySelectorAll('[data-delete-field]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        captureTaskTypeEdits();
-        const typeId = btn.dataset.typeId;
-        const fieldId = btn.dataset.deleteField;
-        const type = state.taskTypes.find((t) => t.id === typeId);
-        if (!type) return;
-        type.fields = (type.fields || []).filter((f) => f.id !== fieldId);
-        markTaskTypesDirty();
-        await saveTaskTypes();
-        toast('Field removed');
-        render();
-      }),
-    );
-  });
 }
 
 /* ── Rules helpers (wired from Capacity) ──────────────────────────────── */
 
 async function savePolicy(overrides) {
   if (!state.activeCycleId) return;
-  const existing = state.policy?.config || {};
-  const num = (id, fallback) => {
-    const el = document.getElementById(id);
-    if (!el) return fallback;
-    const value = Number(el.value);
-    return Number.isFinite(value) ? value : fallback;
-  };
-
-  const config = {
-    ...existing,
-    weekly_capacity_default: num('policy-weekly', existing.weekly_capacity_default ?? 32),
-    review_ratio: num('policy-review', existing.review_ratio ?? 0.35),
-    overload_threshold: num('policy-threshold', existing.overload_threshold ?? 1),
-    alert_proximity_days: num('policy-proximity', existing.alert_proximity_days ?? 14),
-    band_yellow_remaining: num('policy-yellow', existing.band_yellow_remaining ?? 8),
-    review_floor_hours: num('policy-review-floor', existing.review_floor_hours ?? 0),
-    ...overrides,
-  };
-
+  const config = policyConfig(state.draft, state.policy?.config || {}, overrides);
   const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
   state.policy = policy;
 }
@@ -1592,16 +1780,12 @@ function render() {
   const root = document.getElementById('app-root');
   const requested = currentRoute();
 
-  captureAll();
-
   const { route, redirectedFrom } = resolveRoute(requested, state);
   if (route !== requested) {
     state.redirectedFrom = redirectedFrom;
     navigate(route);
     return;
   }
-
-  const focus = captureFocus();
 
   // The wizard takes over the Plans page when there is nothing to list, so the
   // first thing a new user sees is the thing they came to do.
@@ -1643,7 +1827,6 @@ function render() {
   else if (route === 'team') wireTeamEvents();
   else if (route === 'task-types') wireTaskTypesEvents();
 
-  restoreFocus(focus);
   state.redirectedFrom = null;
 }
 
@@ -1665,6 +1848,13 @@ async function boot() {
 
     state.token = auth.token;
     state.me = await meApi.get(auth.token);
+
+    // Attached once to the container that survives every render, so repainting
+    // a region never takes its listeners with it.
+    root.addEventListener('input', onDelegatedEdit);
+    root.addEventListener('change', onDelegatedEdit);
+    root.addEventListener('click', onDelegatedClick);
+
     await loadWorkspaces();
     await loadCoreData();
 
@@ -1683,9 +1873,10 @@ async function boot() {
       }),
     );
 
-    // Nothing autosaves, so warn before a reload throws away pending edits.
+    // Edits save themselves, but a reload inside the debounce window would still
+    // outrun the last one.
     window.addEventListener('beforeunload', (e) => {
-      if (!state.isDirty && !state.teamDirty) return;
+      if (!hasUnsavedWork()) return;
       e.preventDefault();
       e.returnValue = '';
     });

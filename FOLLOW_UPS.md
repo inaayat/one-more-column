@@ -5,52 +5,55 @@ Each item says what's wrong now, why it matters, and where to start.
 
 ---
 
-## 1. Saving is still manual
+## 1. Autosave can still drop a row that fails twice — done, with a caveat
 
-**Now:** the Planner and Team pages collect edits in memory and commit them when
-you press *Save changes*. There's a dirty flag, a disabled-until-dirty button,
-and a `beforeunload` warning, but nothing writes on its own. Any action that
-reloads from the server (adding a gate, deleting a row, switching version)
-calls `flushPendingEdits()` first so nothing is lost — which means an unrelated
-click can trigger a silent save you didn't ask for.
+**Done:** edits save themselves ~700ms after typing stops, one row at a time.
+Each row shows its own saving/saved/failed state, the page shows a save status
+where *Save changes* used to be, and Undo steps back through field edits
+(coalesced per field so it undoes a word, not a letter).
 
-**Why it matters:** it's the last remaining way to lose work, and the implicit
-saves are surprising.
+**What's left:** a row whose save fails stays in the pending set and is retried
+on demand, but `clearSaveState()` runs on every server reload — so if a save
+fails and the user then switches plan or version, that edit is discarded with
+only the toast as a record. Either block the reload while anything is unsaved,
+or keep failed rows across it.
 
-**Where to start:** debounced per-field PATCH on blur, with the row showing a
-saved/failed state. `savePlannerGrid()` in `engine/app.js` already builds the
-exact payload — it needs to be narrowed from "all rows" to "this row".
-
----
-
-## 2. `render()` still replaces the entire DOM
-
-**Now:** every state change re-renders the whole page via `innerHTML`. Two
-workarounds exist because of it — `captureGridEdits()` reads unsaved input
-values back into state before each render, and `captureFocus()`/`restoreFocus()`
-put the caret back afterwards.
-
-**Why it matters:** those two helpers are load-bearing. Any new interactive
-field must remember to participate in both, or it will quietly lose its value
-and steal focus. That's a trap for the next person.
-
-**Where to start:** either keep whole-page renders but move inputs to
-`defaultValue`-free controlled patterns, or introduce targeted updates for the
-two tables. A ~2KB diffing helper would remove both workarounds outright.
+**Where to look:** `queueSave` / `onSaveFailure` / `clearSaveState` in
+`engine/app.js`.
 
 ---
 
-## 3. Concurrent edits clobber each other
+## 2. Targeted rendering — done
 
-**Now:** two browsers on the same plan both PATCH the full row set. Last write
-wins, silently.
+**Done:** inputs write straight into state on every keystroke, so nothing is
+read back out of the DOM and typing no longer triggers a repaint at all. The
+grids and save indicators are marked with `data-section` and repainted on their
+own via `patchSection()`. `captureGridEdits()`, `captureFocus()`,
+`restoreFocus()` and the `skipCapture` flag are all gone.
 
-**Why it matters:** the app is multi-user by construction — it's behind shared
-Neon Auth, and capacity planning is a team activity.
+**What's left:** the whole-page `render()` still exists for navigation and
+structural changes, which is fine — but because a repainted region takes its
+listeners with it, controls inside one must be handled by the delegated listener
+in `onDelegatedClick`, not wired per render. That's an invariant with nothing
+enforcing it: a new button added to a grid and wired the old way will work until
+the first repaint, then silently stop. Worth a comment at minimum, or a dev-mode
+assertion that no listeners are attached inside a `data-section`.
 
-**Where to start:** `plan_items` and `dependencies` already carry `updated_at`.
-Send it back on PATCH and have the handler reject stale writes with a 409, then
-show "someone else changed this row" instead of overwriting.
+---
+
+## 3. Concurrent edits — done
+
+**Done:** the client sends the `updated_at` it loaded a row with; the handler
+rejects a write whose guard no longer matches with a 409 carrying the server's
+copy. The row shows "Changed elsewhere" and *Retry* re-sends with `force` to
+keep the local version deliberately.
+
+**What's left:** the guard compares `date_trunc('milliseconds', ...)` because a
+JSON round-trip of a `timestamptz` doesn't reliably preserve microseconds. Two
+writes inside the same millisecond can still both win. A monotonic integer
+`version` column would remove the ambiguity. Only `plan_items` and
+`dependencies` are guarded — `resources` and `task_types` are still last-write-
+wins.
 
 ---
 
@@ -136,9 +139,13 @@ app root while a dialog is open.
 
 ## 11. There's no page-level test coverage of behaviour
 
-**Now:** `engine/views.test.js` covers rendering, escaping, routing and gating —
-all pure functions. Nothing tests the event wiring, which is where the two bugs
-this pass fixed actually lived.
+**Now:** `engine/views.test.js` covers rendering, escaping, routing and gating,
+and `engine/patches.test.js` covers the autosave payloads — all pure functions.
+Nothing tests the event wiring, which is where the two bugs an earlier pass fixed
+actually lived, and which the autosave work made substantially more intricate:
+the `applyEdit` dispatch resolves which row an input belongs to by walking
+`closest()` selectors, and a selector drifting out of step with the markup would
+silently stop saving that field.
 
 **Where to start:** Playwright is already available in the sibling
 `replacing-nerd-jobs` repo. A handful of flows would pay for themselves: create

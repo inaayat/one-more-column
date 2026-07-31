@@ -55,6 +55,56 @@ function redirectNotice(redirectedFrom) {
   </div>`;
 }
 
+/* ── Scratch input helpers ────────────────────────────────────────────
+   Quick-add rows, pasted CSV and the like are values the server never sends
+   back. They live in state.draft and are written through on every keystroke, so
+   a repaint redraws what the user typed instead of blanking it. */
+
+/** Renders value + name attributes for a draft-backed input. */
+export function draftAttrs(state, key, fallback = '') {
+  const current = state.draft?.[key];
+  const value = current === undefined || current === null ? fallback : current;
+  return `data-draft="${escapeHtml(key)}" value="${escapeHtml(String(value))}"`;
+}
+
+/** Current draft value, falling back when the user hasn't typed yet. */
+export function draftValue(state, key, fallback = '') {
+  const current = state.draft?.[key];
+  return current === undefined || current === null ? fallback : current;
+}
+
+/* ── Save status ──────────────────────────────────────────────────────
+   Per-row autosave needs somewhere to say what happened. Rows report their own
+   state so a failure names the row it belongs to. */
+
+const SAVE_LABELS = {
+  saving: 'Saving…',
+  saved: 'Saved',
+  failed: 'Not saved',
+  conflict: 'Changed elsewhere',
+};
+
+export function rowStatusHtml(status) {
+  if (!status || !SAVE_LABELS[status]) return '';
+  const kind =
+    status === 'failed' ? ' row-status-bad' : status === 'conflict' ? ' row-status-warn' : '';
+  return `<span class="row-status${kind}">${escapeHtml(SAVE_LABELS[status])}</span>`;
+}
+
+/** The page-level indicator that replaced the Save changes button. */
+export function saveStatusHtml(status, pendingCount = 0) {
+  if (status === 'saving') return '<span class="save-status">Saving…</span>';
+  if (status === 'failed') {
+    return '<span class="save-status save-status-bad">Some changes didn\'t save</span>';
+  }
+  if (status === 'conflict') {
+    return '<span class="save-status save-status-warn">Someone else changed this plan</span>';
+  }
+  if (pendingCount) return '<span class="save-status">Unsaved changes</span>';
+  if (status === 'saved') return '<span class="save-status save-status-ok">All changes saved</span>';
+  return '<span class="save-status save-status-idle">Changes save automatically</span>';
+}
+
 /* ── Plans ────────────────────────────────────────────────────────────── */
 
 export function renderPlansView({ state, redirectedFrom }) {
@@ -317,7 +367,7 @@ function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
 
   return `
     <tr class="gate-drawer" data-drawer-for="${escapeHtml(item.id)}">
-      <td colspan="9">
+      <td colspan="10">
         <div class="gate-drawer-inner">
           <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
             <label class="field">
@@ -352,9 +402,21 @@ function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
     </tr>`;
 }
 
-export function renderPlannerView({ state }) {
-  const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
-  const isLive = activeScenario?.status === 'active';
+/** Autosave indicator plus undo, repainted on its own as saves settle. */
+export function plannerSaveBar(state) {
+  const pending = state.pendingRows?.size || 0;
+  const canUndo = Boolean(state.undoStack?.length);
+  return `
+    ${saveStatusHtml(state.saveStatus, pending)}
+    ${state.saveStatus === 'failed' || state.saveStatus === 'conflict'
+      ? '<button type="button" class="btn btn-ghost btn-sm" id="retry-planner">Retry</button>'
+      : ''}
+    <button type="button" class="btn btn-ghost btn-sm" id="undo-planner"${canUndo ? '' : ' disabled'}>Undo</button>
+  `;
+}
+
+/** The grid alone, so autosave and row status can repaint just it. */
+export function renderPlannerTable(state) {
   const typePairs = taskTypePairs(state.taskTypes);
   const progress = getSetupProgress(state);
 
@@ -413,6 +475,7 @@ export function renderPlannerView({ state }) {
           </button>
         </td>
         <td>${readyCell}</td>
+        <td class="planner-status" data-row-status="${escapeHtml(item.id)}">${rowStatusHtml(state.rowStatus?.[item.id])}</td>
         <td class="planner-actions">
           <button type="button" class="btn-icon" data-delete-item="${escapeHtml(item.id)}" aria-label="Delete ${escapeHtml(item.title)}">
             <span aria-hidden="true">×</span>
@@ -422,6 +485,57 @@ export function renderPlannerView({ state }) {
       ${gateDrawer(item, deps, state.planItems, expanded, state.taskTypes || [])}`;
     })
     .join('');
+
+  return plannerTableHtml({ state, rows, progress, empty: !state.planItems.length });
+}
+
+function plannerTableHtml({ state, rows, progress, empty }) {
+  if (empty) {
+    return `
+      <div class="empty">
+        <span class="empty-title">Nothing listed yet</span>
+        <p class="empty-body">
+          ${progress.typesReady
+            ? `Use Add work above for the first item. Give it hours and a due date and it will show up
+          on the capacity grid straight away — you don't need your team in place first.`
+            : `Your catalog isn't shaped yet. Define task types (fields and dependencies) first,
+          then add specific work items here.`}
+        </p>
+        ${!progress.typesReady
+          ? `<a class="btn btn-primary" href="#/task-types">Define task types</a>`
+          : ''}
+      </div>`;
+  }
+
+  return `
+    <section class="panel panel-flush">
+      <div class="table-scroll">
+        <table class="table planner-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>What</th>
+              <th>Type</th>
+              <th>Hours</th>
+              <th>Start</th>
+              <th>Due</th>
+              <th>Details</th>
+              <th>Can start</th>
+              <th><span class="sr-only">Save state</span></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+export function renderPlannerView({ state }) {
+  const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
+  const isLive = activeScenario?.status === 'active';
+  const typePairs = taskTypePairs(state.taskTypes);
+  const progress = getSetupProgress(state);
 
   const preview = state.importPreview;
   const matchedFieldLabels = (preview?.matched_fields || []).map((f) => f.label || f.key);
@@ -464,8 +578,6 @@ export function renderPlannerView({ state }) {
        </div>`
     : '';
 
-  const empty = !state.planItems.length;
-
   return `
     <div class="page-bar">
       <div class="page-head">
@@ -476,9 +588,8 @@ export function renderPlannerView({ state }) {
           Hours and a due date are what drive the capacity grid.
         </p>
       </div>
-      <div class="btn-row">
-        ${state.isDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
-        <button type="button" class="btn btn-primary" id="save-planner"${state.isDirty ? '' : ' disabled'}>Save changes</button>
+      <div class="btn-row" data-section="planner-savebar">
+        ${plannerSaveBar(state)}
       </div>
     </div>
 
@@ -523,58 +634,26 @@ export function renderPlannerView({ state }) {
       <div class="quick-add">
         <label class="field">
           <span class="field-label">What needs doing</span>
-          <input id="new-item-title" class="input" placeholder="e.g. Draft the Q1 forecast" autocomplete="off" />
+          <input id="new-item-title" class="input" placeholder="e.g. Draft the Q1 forecast" autocomplete="off"
+            ${draftAttrs(state, 'newItemTitle')} />
         </label>
         <label class="field">
           <span class="field-label">Type</span>
-          <select id="new-item-type" class="input">${optionList(typePairs, 'general')}</select>
+          <select id="new-item-type" class="input" data-draft="newItemType">${optionList(typePairs, draftValue(state, 'newItemType', 'general'))}</select>
         </label>
         <label class="field">
           <span class="field-label">Hours</span>
-          <input id="new-item-hours" class="input" type="number" step="0.5" min="0" value="8" />
+          <input id="new-item-hours" class="input" type="number" step="0.5" min="0" ${draftAttrs(state, 'newItemHours', '8')} />
         </label>
         <label class="field">
           <span class="field-label">Due</span>
-          <input id="new-item-due" class="input" type="date" />
+          <input id="new-item-due" class="input" type="date" ${draftAttrs(state, 'newItemDue')} />
         </label>
         <button type="button" class="btn btn-primary" id="add-plan-item">Add row</button>
       </div>
     </section>
 
-    ${empty
-      ? `<div class="empty">
-           <span class="empty-title">Nothing listed yet</span>
-           <p class="empty-body">
-             ${progress.typesReady
-               ? `Use Add work above for the first item. Give it hours and a due date and it will show up
-             on the capacity grid straight away — you don't need your team in place first.`
-               : `Your catalog isn't shaped yet. Define task types (fields and dependencies) first,
-             then add specific work items here.`}
-           </p>
-           ${!progress.typesReady
-             ? `<a class="btn btn-primary" href="#/task-types">Define task types</a>`
-             : ''}
-         </div>`
-      : `<section class="panel panel-flush">
-           <div class="table-scroll">
-             <table class="table planner-table">
-               <thead>
-                 <tr>
-                   <th></th>
-                   <th>What</th>
-                   <th>Type</th>
-                   <th>Hours</th>
-                   <th>Start</th>
-                   <th>Due</th>
-                   <th>Details</th>
-                   <th>Can start</th>
-                   <th></th>
-                 </tr>
-               </thead>
-               <tbody>${rows}</tbody>
-             </table>
-           </div>
-         </section>`}
+    <div data-section="planner-table">${renderPlannerTable(state)}</div>
 
     <section class="panel">
       ${importPreview}
@@ -599,7 +678,7 @@ export function renderPlannerView({ state }) {
                   : '';
               })()
             }</p>
-            <textarea id="import-csv" class="input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1">${escapeHtml(state.importCsvText || '')}</textarea>
+            <textarea id="import-csv" class="input" rows="4" data-draft="importCsv" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1">${escapeHtml(draftValue(state, 'importCsv'))}</textarea>
           </label>
           <div class="btn-row">
             <button type="button" class="btn btn-ghost btn-sm" id="preview-import">Preview import</button>
@@ -674,7 +753,7 @@ function renderPlanningRulesPanel(state) {
                 ([id, label, value, step, hint]) => `
               <label class="field">
                 <span class="field-label">${escapeHtml(label)}</span>
-                <input id="${id}" class="input" type="number" step="${step}" value="${escapeHtml(String(value))}" />
+                <input id="${id}" class="input" type="number" step="${step}" ${draftAttrs(state, id, String(value))} />
                 <span class="field-hint">${escapeHtml(hint)}</span>
               </label>`,
               )
@@ -856,7 +935,27 @@ export function renderCapacityView({ state }) {
 
 /* ── Team ─────────────────────────────────────────────────────────────── */
 
-export function renderTeamView({ state }) {
+/** Autosave indicator for the Team page. */
+export function teamSaveBar(state) {
+  const pending = state.pendingResources?.size || 0;
+  return `
+    ${saveStatusHtml(state.teamSaveStatus, pending)}
+    ${state.teamSaveStatus === 'failed' || state.teamSaveStatus === 'conflict'
+      ? '<button type="button" class="btn btn-ghost btn-sm" id="retry-team">Retry</button>'
+      : ''}
+  `;
+}
+
+/** The team grid alone, so autosave can repaint just it. */
+export function renderTeamTable(state) {
+  if (!state.resources.length) {
+    return `
+      <div class="empty">
+        <span class="empty-title">No one here yet</span>
+        <p class="empty-body">Add your first person above. Capacity stays empty until at least one person exists.</p>
+      </div>`;
+  }
+
   const rows = state.resources
     .map(
       (r) => `
@@ -868,6 +967,7 @@ export function renderTeamView({ state }) {
           value="${r.profiles?.[0]?.weekly_hours ?? 32}" aria-label="Hours per week" style="max-width:90px" />
       </td>
       <td>${(r.time_off || []).length ? `<span class="badge">${r.time_off.length} booked</span>` : '<span class="badge">—</span>'}</td>
+      <td class="planner-status" data-row-status="${escapeHtml(r.id)}">${rowStatusHtml(state.resourceStatus?.[r.id])}</td>
       <td class="planner-actions">
         <button type="button" class="btn-icon" data-delete-resource="${escapeHtml(r.id)}" aria-label="Remove ${escapeHtml(r.name)}">
           <span aria-hidden="true">×</span>
@@ -876,6 +976,19 @@ export function renderTeamView({ state }) {
     </tr>`,
     )
     .join('');
+
+  return `
+    <section class="panel panel-flush">
+      <div class="table-scroll">
+        <table class="table">
+          <thead><tr><th>Name</th><th>Role</th><th>Hours/week</th><th>Time off</th><th><span class="sr-only">Save state</span></th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+export function renderTeamView({ state }) {
 
   const ptoList = state.resources
     .filter((r) => r.time_off?.length)
@@ -908,9 +1021,8 @@ export function renderTeamView({ state }) {
           These numbers are the denominator behind every capacity cell.
         </p>
       </div>
-      <div class="btn-row">
-        ${state.teamDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
-        <button type="button" class="btn btn-primary" id="save-team"${state.teamDirty ? '' : ' disabled'}>Save changes</button>
+      <div class="btn-row" data-section="team-savebar">
+        ${teamSaveBar(state)}
       </div>
     </div>
 
@@ -919,15 +1031,18 @@ export function renderTeamView({ state }) {
       <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,1.5fr) minmax(0,0.8fr) auto">
         <label class="field">
           <span class="field-label">Name</span>
-          <input id="new-resource-name" class="input" placeholder="Alex Rivera" autocomplete="off" />
+          <input id="new-resource-name" class="input" placeholder="Alex Rivera" autocomplete="off"
+            ${draftAttrs(state, 'newResourceName')} />
         </label>
         <label class="field">
           <span class="field-label">Role</span>
-          <input id="new-resource-team" class="input" placeholder="Analyst" autocomplete="off" />
+          <input id="new-resource-team" class="input" placeholder="Analyst" autocomplete="off"
+            ${draftAttrs(state, 'newResourceTeam')} />
         </label>
         <label class="field">
           <span class="field-label">Hours/week</span>
-          <input id="new-resource-hours" class="input" type="number" step="0.5" min="0" value="32" />
+          <input id="new-resource-hours" class="input" type="number" step="0.5" min="0"
+            ${draftAttrs(state, 'newResourceHours', '32')} />
         </label>
         <button type="button" class="btn btn-primary" id="add-resource">Add</button>
       </div>
@@ -936,19 +1051,7 @@ export function renderTeamView({ state }) {
       </p>
     </section>
 
-    ${state.resources.length
-      ? `<section class="panel panel-flush">
-           <div class="table-scroll">
-             <table class="table">
-               <thead><tr><th>Name</th><th>Role</th><th>Hours/week</th><th>Time off</th><th></th></tr></thead>
-               <tbody>${rows}</tbody>
-             </table>
-           </div>
-         </section>`
-      : `<div class="empty">
-           <span class="empty-title">No one here yet</span>
-           <p class="empty-body">Add your first person above. Capacity stays empty until at least one person exists.</p>
-         </div>`}
+    <div data-section="team-table">${renderTeamTable(state)}</div>
 
     ${state.resources.length
       ? `<section class="panel">
@@ -967,15 +1070,16 @@ export function renderTeamView({ state }) {
              </label>
              <label class="field">
                <span class="field-label">From</span>
-               <input id="pto-start" class="input" type="date" />
+               <input id="pto-start" class="input" type="date" ${draftAttrs(state, 'ptoStart')} />
              </label>
              <label class="field">
                <span class="field-label">To</span>
-               <input id="pto-end" class="input" type="date" />
+               <input id="pto-end" class="input" type="date" ${draftAttrs(state, 'ptoEnd')} />
              </label>
              <label class="field">
                <span class="field-label">Hours/day</span>
-               <input id="pto-hours" class="input" type="number" step="0.5" min="0" placeholder="blank = all day" />
+               <input id="pto-hours" class="input" type="number" step="0.5" min="0" placeholder="blank = all day"
+                 ${draftAttrs(state, 'ptoHours')} />
              </label>
              <button type="button" class="btn btn-ghost" id="add-pto">Book it</button>
            </div>
@@ -989,10 +1093,21 @@ export function renderTeamView({ state }) {
 
 /* ── Task types ────────────────────────────────────────────────────────── */
 
-export function renderTaskTypesView({ state }) {
+/** Autosave indicator for the Task types page. */
+export function taskTypesSaveBar(state) {
+  const pending = state.pendingTaskTypes?.size || 0;
+  return `
+    ${saveStatusHtml(state.taskTypesSaveStatus, pending)}
+    ${state.taskTypesSaveStatus === 'failed' || state.taskTypesSaveStatus === 'conflict'
+      ? '<button type="button" class="btn btn-ghost btn-sm" id="retry-task-types">Retry</button>'
+      : ''}
+  `;
+}
+
+/** The task-type table alone, so autosave can repaint just it. */
+export function renderTaskTypesTable(state) {
   const types = state.taskTypes || [];
   const expanded = state.expandedTaskTypes || new Set();
-  const progress = getSetupProgress(state);
 
   const rows = types
     .map((t) => {
@@ -1098,15 +1213,17 @@ export function renderTaskTypesView({ state }) {
                  <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,0.8fr) minmax(0,1.2fr) auto;margin-bottom:14px">
                    <label class="field">
                      <span class="field-label">Step name</span>
-                     <input class="input" data-new-step-label="${escapeHtml(t.id)}" placeholder="e.g. Obtain population" autocomplete="off" />
+                     <input class="input" data-new-step-label="${escapeHtml(t.id)}" placeholder="e.g. Obtain population" autocomplete="off"
+                       ${draftAttrs(state, `newStepLabel:${t.id}`)} />
                    </label>
                    <label class="field">
                      <span class="field-label">Days</span>
-                     <input class="input" data-new-step-days="${escapeHtml(t.id)}" type="number" step="0.5" min="0.5" value="7" />
+                     <input class="input" data-new-step-days="${escapeHtml(t.id)}" type="number" step="0.5" min="0.5"
+                       ${draftAttrs(state, `newStepDays:${t.id}`, '7')} />
                    </label>
                    <label class="field">
                      <span class="field-label">Count as</span>
-                     <select class="input" data-new-step-kind="${escapeHtml(t.id)}">${optionList(DAY_KINDS, 'business')}</select>
+                     <select class="input" data-new-step-kind="${escapeHtml(t.id)}" data-draft="newStepKind:${escapeHtml(t.id)}">${optionList(DAY_KINDS, draftValue(state, `newStepKind:${t.id}`, 'business'))}</select>
                    </label>
                    <button type="button" class="btn btn-ghost" data-add-step="${escapeHtml(t.id)}">Add step</button>
                  </div>
@@ -1128,11 +1245,12 @@ export function renderTaskTypesView({ state }) {
                  <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;margin-bottom:14px">
                    <label class="field">
                      <span class="field-label">Field label</span>
-                     <input class="input" data-new-field-label="${escapeHtml(t.id)}" placeholder="e.g. Control ID" autocomplete="off" />
+                     <input class="input" data-new-field-label="${escapeHtml(t.id)}" placeholder="e.g. Control ID" autocomplete="off"
+                       ${draftAttrs(state, `newFieldLabel:${t.id}`)} />
                    </label>
                    <label class="field">
                      <span class="field-label">Type</span>
-                     <select class="input" data-new-field-type="${escapeHtml(t.id)}">${optionList(FIELD_TYPES, 'text')}</select>
+                     <select class="input" data-new-field-type="${escapeHtml(t.id)}" data-draft="newFieldType:${escapeHtml(t.id)}">${optionList(FIELD_TYPES, draftValue(state, `newFieldType:${t.id}`, 'text'))}</select>
                    </label>
                    <button type="button" class="btn btn-ghost" data-add-field="${escapeHtml(t.id)}">Add field</button>
                  </div>
@@ -1151,6 +1269,28 @@ export function renderTaskTypesView({ state }) {
     })
     .join('');
 
+  if (!types.length) {
+    return `
+      <div class="empty">
+        <span class="empty-title">No types yet</span>
+        <p class="empty-body">Add your first type above. The usual defaults appear once this workspace loads its catalog.</p>
+      </div>`;
+  }
+
+  return `
+    <section class="panel panel-flush">
+      <div class="table-scroll">
+        <table class="table" id="task-types-table">
+          <thead><tr><th>Template</th><th>Type</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+export function renderTaskTypesView({ state }) {
+  const progress = getSetupProgress(state);
+
   return `
     <div class="page-bar">
       <div class="page-head">
@@ -1162,8 +1302,7 @@ export function renderTaskTypesView({ state }) {
         </p>
       </div>
       <div class="btn-row">
-        ${state.taskTypesDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
-        <button type="button" class="btn btn-primary" id="save-task-types"${state.taskTypesDirty ? '' : ' disabled'}>Save changes</button>
+        <span data-section="task-types-savebar">${taskTypesSaveBar(state)}</span>
         ${progress.typesReady
           ? `<a class="btn btn-ghost" href="#/planner">Continue to Planner</a>`
           : ''}
@@ -1183,7 +1322,8 @@ export function renderTaskTypesView({ state }) {
       <div class="quick-add" style="grid-template-columns:minmax(0,2fr) auto">
         <label class="field">
           <span class="field-label">Name</span>
-          <input id="new-task-type-label" class="input" placeholder="e.g. Control Testing" autocomplete="off" />
+          <input id="new-task-type-label" class="input" placeholder="e.g. Control Testing" autocomplete="off"
+            ${draftAttrs(state, 'newTaskTypeLabel')} />
         </label>
         <button type="button" class="btn btn-primary" id="add-task-type">Add</button>
       </div>
@@ -1192,19 +1332,7 @@ export function renderTaskTypesView({ state }) {
       </p>
     </section>
 
-    ${types.length
-      ? `<section class="panel panel-flush">
-           <div class="table-scroll">
-             <table class="table" id="task-types-table">
-               <thead><tr><th>Template</th><th>Type</th><th></th></tr></thead>
-               <tbody>${rows}</tbody>
-             </table>
-           </div>
-         </section>`
-      : `<div class="empty">
-           <span class="empty-title">No types yet</span>
-           <p class="empty-body">Add your first type above. The usual defaults appear once this workspace loads its catalog.</p>
-         </div>`}
+    <div data-section="task-types-table">${renderTaskTypesTable(state)}</div>
   `;
 }
 

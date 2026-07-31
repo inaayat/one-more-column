@@ -1,6 +1,6 @@
 /**
- * App chrome: sidebar shell, toasts, modal dialogs, busy buttons, and focus
- * preservation across the full-innerHTML re-renders the app does.
+ * App chrome: sidebar shell, toasts, modal dialogs, busy buttons, and targeted
+ * region updates so typing never triggers a full-page repaint.
  */
 
 export function escapeHtml(value) {
@@ -178,42 +178,23 @@ export async function withBusy(button, label, fn) {
   }
 }
 
-/* ── Focus preservation ───────────────────────────────────────────────
-   render() swaps innerHTML wholesale, which drops focus to <body> and loses the
-   caret position mid-typing. Snapshot before, restore after. */
+/* ── Targeted updates ─────────────────────────────────────────────────
+   Views mark their updatable regions with data-section. Repainting one region
+   leaves the rest of the DOM — including whatever the user is typing in —
+   untouched, so there is nothing to snapshot and restore. */
 
-export function captureFocus() {
-  const el = document.activeElement;
-  if (!el || el === document.body) return null;
-  const row = el.closest?.('[data-id]');
-  return {
-    id: el.id || null,
-    field: el.dataset?.field || null,
-    rowId: row?.dataset?.id || null,
-    start: el.selectionStart ?? null,
-    end: el.selectionEnd ?? null,
-  };
+/** Repaints a single named region. Returns false if it isn't on screen. */
+export function patchSection(name, html) {
+  const el = document.querySelector(`[data-section="${name}"]`);
+  if (!el) return false;
+  el.innerHTML = html;
+  return true;
 }
 
-export function restoreFocus(snapshot) {
-  if (!snapshot) return;
-  let el = null;
-  if (snapshot.id) {
-    el = document.getElementById(snapshot.id);
-  } else if (snapshot.rowId && snapshot.field) {
-    el = document.querySelector(
-      `[data-id="${CSS.escape(snapshot.rowId)}"] [data-field="${CSS.escape(snapshot.field)}"]`,
-    );
-  }
-  if (!el) return;
-  el.focus();
-  if (snapshot.start != null && el.setSelectionRange) {
-    try {
-      el.setSelectionRange(snapshot.start, snapshot.end);
-    } catch {
-      /* number/date inputs reject setSelectionRange; focus alone is enough */
-    }
-  }
+/** True when focus is inside the named region, which must not be repainted. */
+export function focusWithinSection(name) {
+  const el = document.querySelector(`[data-section="${name}"]`);
+  return Boolean(el && document.activeElement && el.contains(document.activeElement));
 }
 
 /* ── Sidebar shell ────────────────────────────────────────────────────── */
