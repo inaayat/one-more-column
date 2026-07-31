@@ -1,618 +1,1023 @@
-/** Plan Builder + Dependencies view helpers (H2 / C2). */
+/** Page bodies. Every view is a pure function of state — events wire in app.js. */
 
+import { escapeHtml, prettyDate, formatRange } from './shell.js';
 import { getSetupProgress } from './setup.js';
 
-export function renderSetupProgressBanner(state) {
-  return '';
-}
+/* ── Shared bits ──────────────────────────────────────────────────────── */
 
-export function setupSectionClass(progress, anchor) {
-  const isCurrent = progress.nextStep?.anchor === anchor;
-  return `panel setup-section${isCurrent ? ' setup-section-current' : ''}`;
-}
-
-export function renderPlanningCta(state) {
-  const progress = getSetupProgress(state);
-  if (!progress.planningReady) return '';
-
-  const isCurrent = progress.nextStep?.id === 'plan';
-  const hasRows = progress.hasPlanItems;
-
-  return `
-    <section id="setup-planning" class="panel setup-planning-cta${isCurrent ? ' setup-section-current' : ''}">
-      <h2 class="omc-section-title">What are you actually planning?</h2>
-      <p class="omc-lead">This is the main event — list the work: deliverables, reviews, meetings, ad-hoc tasks. Each row needs a title, hours, and due date.</p>
-      ${hasRows
-        ? `<p class="omc-lead"><span class="badge badge-ok">${state.planItems.length} row(s) in Planner</span> — <a href="#/planner">keep adding or editing</a>.</p>`
-        : `<div class="btn-row"><a class="btn btn-refresh-solid" href="#/planner">Open Planner →</a></div>`}
-      ${!progress.teamReady ? '<p class="omc-lead setup-planning-note">You can plan before adding your team. Add people in step 2 when you are ready to check capacity.</p>' : ''}
-    </section>
-  `;
-}
-
-export function renderHomeView({ state, escapeHtml }) {
-  const progress = getSetupProgress(state);
-  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
-  const workspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
-
-  const setupStatus = progress.onboardingComplete
-    ? '<span class="badge badge-ok">Ready to plan</span>'
-    : progress.planningReady
-      ? progress.hasPlanItems
-        ? '<span class="badge">Check capacity</span>'
-        : '<span class="badge badge-warn">List your work</span>'
-      : '<span class="badge badge-warn">Finish setup first</span>';
-
-  const nextStep = progress.nextStep
-    ? { href: `#/${progress.nextStep.route}`, label: progress.nextStep.label }
-    : { href: '#/capacity', label: 'View your capacity grid' };
-
-  const secondaryCta = progress.planningReady
-    ? { href: '#/preferences', label: 'Settings' }
-    : { href: '#/settings', label: 'Open Setup' };
-
-  return `
-    <section class="panel home-hero">
-      <p class="home-eyebrow">Getting started</p>
-      <h1 class="omc-title">Plan your work in one place</h1>
-      <p class="omc-lead home-intro">
-        One More Column helps you list what needs to get done, spread hours across weeks,
-        and see who still has room — without juggling another spreadsheet.
-      </p>
-      <div class="home-status">
-        ${setupStatus}
-        <span class="home-status-detail">
-          ${escapeHtml(workspace?.name || 'No workspace')}
-          ${cycle ? ` · ${escapeHtml(cycle.name)}` : ''}
-        </span>
-      </div>
-      <div class="btn-row home-cta">
-        <a class="btn btn-refresh-solid" href="${nextStep.href}">${escapeHtml(nextStep.label)}</a>
-        <a class="btn btn-ghost" href="${secondaryCta.href}">${escapeHtml(secondaryCta.label)}</a>
-      </div>
-    </section>
-
-    <section class="panel home-guide">
-      <h2 class="omc-section-title">How to use this tool</h2>
-      <p class="omc-lead">Name your plan in <strong>Setup</strong>, then list your actual work in <strong>Planner</strong>. Add people when you are ready to check <strong>Capacity</strong>.</p>
-
-      <ol class="guide-steps">
-        <li class="guide-step${progress.nextStep?.id === 'name-plan' ? ' guide-step-current' : ''}">
-          <div class="guide-step-head">
-            <span class="guide-step-num">1</span>
-            <h3>Name your plan</h3>
-          </div>
-          <p>Start on <a href="#/settings">Setup</a>. Pick a <strong>workspace</strong> (existing or new), then name the plan with <strong>start</strong> and <strong>end</strong> dates and choose how to <strong>track work</strong> — by day, week, or month.</p>
-        </li>
-
-        <li class="guide-step${progress.nextStep?.id === 'plan' ? ' guide-step-current' : ''}">
-          <div class="guide-step-head">
-            <span class="guide-step-num">2</span>
-            <h3>What are you actually planning?</h3>
-          </div>
-          <p>Open <a href="#/planner">Planner</a> and add rows — deliverables, reviews, meetings, anything with hours and a due date.</p>
-          <ul class="guide-tips">
-            <li><strong>Title</strong> — what needs to be done.</li>
-            <li><strong>Type</strong> — general, deliverable, review, meeting, admin, or other.</li>
-            <li><strong>Work hours</strong> and <strong>due week</strong> — drive the capacity grid.</li>
-          </ul>
-        </li>
-
-        <li class="guide-step${progress.nextStep?.id === 'people' ? ' guide-step-current' : ''}">
-          <div class="guide-step-head">
-            <span class="guide-step-num">3</span>
-            <h3>Add your team (for capacity)</h3>
-          </div>
-          <p>Back on <a href="#/settings">Setup</a>, add one row per person — name, role, and standard hours.</p>
-          <ul class="guide-tips">
-            <li><strong>Who</strong>, <strong>role</strong>, and <strong>std h/wk</strong> — that's all you need to start.</li>
-            <li>Add PTO and other details later under <strong>Settings</strong> in the nav.</li>
-            <li>You can list work in Planner before your team is complete.</li>
-          </ul>
-        </li>
-
-        <li class="guide-step">
-          <div class="guide-step-head">
-            <span class="guide-step-num">4</span>
-            <h3>Model blockers (optional)</h3>
-          </div>
-          <p>If something cannot start until something else is done, add a <strong>gate</strong> on that row in Planner.</p>
-        </li>
-
-        <li class="guide-step${progress.nextStep?.id === 'capacity' ? ' guide-step-current' : ''}">
-          <div class="guide-step-head">
-            <span class="guide-step-num">5</span>
-            <h3>Check capacity</h3>
-          </div>
-          <p>Open <a href="#/capacity">Capacity</a> to see hours per person, per week.</p>
-          <ul class="guide-tips">
-            <li><span class="legend-dot ok"></span> <strong>Green</strong> — room left.</li>
-            <li><span class="legend-dot warn"></span> <strong>Yellow</strong> — getting tight.</li>
-            <li><span class="legend-dot bad"></span> <strong>Red</strong> — overloaded.</li>
-            <li>Use <strong>team tabs</strong> to focus on one group. Open gates from Planner show at the top when something is still waiting.</li>
-          </ul>
-        </li>
-
-        <li class="guide-step">
-          <div class="guide-step-head">
-            <span class="guide-step-num">6</span>
-            <h3>Watch for problems</h3>
-          </div>
-          <p><a href="#/alerts">Alerts</a> surfaces overloads, due dates coming up soon, and readiness gaps — no external tools required.</p>
-          <p class="guide-note">Use <strong>scenarios</strong> on the Plan page to try a "what if" version without overwriting your baseline.</p>
-        </li>
-      </ol>
-    </section>
-
-    <section class="panel home-quickref">
-      <h2 class="omc-section-title">Quick reference</h2>
-      <div class="quickref-grid">
-        <div class="quickref-card">
-          <h3>Switch workspace</h3>
-          <p>Use the dropdown in the top-right header. Each workspace keeps its own people and cycles.</p>
-        </div>
-        <div class="quickref-card">
-          <h3>Switch cycle or scenario</h3>
-          <p>Pick them on Plan, Capacity, or Dependencies. Your choice stays until you change it.</p>
-        </div>
-        <div class="quickref-card">
-          <h3>Import vs export</h3>
-          <p><strong>Import</strong> adds rows from CSV. <strong>Export</strong> downloads your current plan or capacity. <strong>Check drift</strong> compares today to your last import.</p>
-        </div>
-        <div class="quickref-card">
-          <h3>Where data lives</h3>
-          <p>Everything you enter is saved in the app. There is no live sync with Jira or other tools in this version.</p>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-export function renderAlertsView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
-  const groups = { high: [], medium: [], low: [] };
-  for (const alert of state.alerts || []) {
-    groups[alert.severity]?.push(alert);
-  }
-
-  const renderGroup = (title, items, cls) => {
-    if (!items.length) return '';
-    const rows = items
-      .map(
-        (a) => `<tr>
-          <td><span class="badge ${cls}">${escapeHtml(a.type)}</span></td>
-          <td>${escapeHtml(a.message)}</td>
-          <td>${escapeHtml(a.team || a.week || a.due_week || '—')}</td>
-        </tr>`,
-      )
-      .join('');
-    return `<h3 class="omc-section-title">${title} (${items.length})</h3>
-      <table class="data-table" style="margin-bottom:16px"><tbody>${rows}</tbody></table>`;
-  };
-
-  return `
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <h1 class="omc-title">Alerts</h1>
-          <p class="omc-lead">Overload, due-date proximity, and readiness gaps — from Postgres only.</p>
-        </div>
-        <div class="btn-row">
-          <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
-          <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
-          <button type="button" class="btn btn-ghost btn-sm" id="refresh-alerts">Refresh</button>
-        </div>
-      </div>
-      <div class="alert-summary">
-        <span class="badge badge-warn">High: ${state.alertCounts?.high ?? 0}</span>
-        <span class="badge">Medium: ${state.alertCounts?.medium ?? 0}</span>
-        <span class="badge badge-ok">Low: ${state.alertCounts?.low ?? 0}</span>
-      </div>
-      ${renderGroup('High severity', groups.high, 'badge-warn')}
-      ${renderGroup('Medium severity', groups.medium, '')}
-      ${renderGroup('Low severity', groups.low, 'badge-ok')}
-      ${!state.alerts?.length ? '<p class="omc-lead">No alerts for this cycle/scenario.</p>' : ''}
-    </section>
-  `;
-}
-
-export function openGatesBlock(state, escapeHtml) {
-  const open = (state.dependencies || []).filter(
-    (d) => d.status === 'open' || d.status === 'blocked',
-  );
-  if (!open.length) return '';
-
-  const items = open
-    .map((d) => {
-      const task = escapeHtml(d.to_title || 'Task');
-      const label = escapeHtml(d.label || 'Gate');
-      const due = d.meta?.due_date ? String(d.meta.due_date).slice(0, 10) : 'no date set';
-      return `<li><strong>${task}</strong> — ${label} (by ${due})</li>`;
-    })
-    .join('');
-
-  return `<div class="assumptions-panel"><strong>Still waiting on</strong><ul>${items}</ul><p class="omc-lead" style="margin-top:8px">These come from gates in Planner — not a separate list.</p></div>`;
-}
-
-/** @deprecated assumptions live in Planner gates now */
-export function assumptionsBlock(assumptions, escapeHtml) {
-  return '';
-}
-
-export function teamTabs(teams, activeTeam, escapeHtml) {
-  const tabs = [
-    `<button type="button" class="team-tab${!activeTeam ? ' active' : ''}" data-team="">All</button>`,
-    ...teams.map(
-      (t) =>
-        `<button type="button" class="team-tab${activeTeam === t ? ' active' : ''}" data-team="${escapeAttr(t)}">${escapeHtml(t)}</button>`,
-    ),
-  ];
-  return `<div class="team-tabs">${tabs.join('')}</div>`;
-}
-
-export function capacityCellClass(cell) {
-  if (cell.band === 'red' || cell.overloaded) return 'cap-cell cap-band-red';
-  if (cell.band === 'yellow') return 'cap-cell cap-band-yellow';
-  return 'cap-cell cap-band-green';
-}
-
-export function scenarioOptions(scenarios, selectedId) {
-  if (!scenarios?.length) return '<option value="">No scenarios</option>';
-  return scenarios
+export function planOptions(cycles, selectedId) {
+  if (!cycles.length) return '<option value="">No plans yet</option>';
+  return cycles
     .map(
-      (s) =>
-        `<option value="${escapeAttr(s.id)}"${s.id === selectedId ? ' selected' : ''}>${escapeAttr(s.name)} (${s.status})</option>`,
+      (c) =>
+        `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
     )
     .join('');
 }
 
-export function escapeAttr(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/</g, '&lt;');
+export function workspaceOptions(workspaces, selectedId) {
+  if (!workspaces.length) return '<option value="">No workspaces</option>';
+  return workspaces
+    .map(
+      (w) =>
+        `<option value="${escapeHtml(w.id)}"${w.id === selectedId ? ' selected' : ''}>${escapeHtml(w.name)}</option>`,
+    )
+    .join('');
 }
 
-export function renderPlannerView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
+function scenarioOptions(scenarios, selectedId) {
+  if (!scenarios?.length) return '<option value="">No versions</option>';
+  return scenarios
+    .map(
+      (s) =>
+        `<option value="${escapeHtml(s.id)}"${s.id === selectedId ? ' selected' : ''}>${escapeHtml(s.name)}${s.status === 'active' ? ' (live)' : ''}</option>`,
+    )
+    .join('');
+}
+
+function capacityCellClass(cell) {
+  if (cell.band === 'red' || cell.overloaded) return 'cap-cell cap-over';
+  if (cell.band === 'yellow') return 'cap-cell cap-tight';
+  if (!cell.load) return 'cap-cell cap-idle';
+  return 'cap-cell cap-ok';
+}
+
+function redirectNotice(redirectedFrom) {
+  if (!redirectedFrom) return '';
+  const names = {
+    planner: 'Planner',
+    capacity: 'Capacity',
+    alerts: 'Alerts',
+    team: 'Team',
+    rules: 'Settings',
+  };
+  return `<div class="notice notice-info">
+    <strong>${escapeHtml(names[redirectedFrom] || 'That page')}</strong> needs a plan before it has anything to show. Create one below and you'll be sent straight there.
+  </div>`;
+}
+
+/* ── Plans ────────────────────────────────────────────────────────────── */
+
+export function renderPlansView({ state, redirectedFrom }) {
+  const progress = getSetupProgress(state);
+  const workspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
+
+  const cards = state.cycles
+    .map((cycle) => {
+      const isActive = cycle.id === state.activeCycleId;
+      const granularity = isActive
+        ? state.policy?.config?.tracking_granularity || 'week'
+        : null;
+      return `
+      <div class="plan-card${isActive ? ' active' : ''}" data-plan-id="${escapeHtml(cycle.id)}">
+        <div>
+          <div class="plan-card-name">${escapeHtml(cycle.name)}</div>
+          <div class="plan-card-meta">
+            ${escapeHtml(formatRange(cycle))}${granularity ? ` · by ${escapeHtml(granularity)}` : ''}
+          </div>
+        </div>
+        <div class="btn-row">
+          ${isActive
+            ? '<span class="badge badge-ok">Open</span>'
+            : `<button type="button" class="btn btn-ghost btn-sm" data-open-plan="${escapeHtml(cycle.id)}">Open</button>`}
+          <button type="button" class="btn btn-danger btn-sm" data-delete-plan="${escapeHtml(cycle.id)}">Delete</button>
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  return `
+    <div class="page-head">
+      <p class="eyebrow">Plans</p>
+      <h1 class="page-title">Your plans</h1>
+      <p class="page-lead">
+        Each plan covers one stretch of time in <strong>${escapeHtml(workspace?.name || 'your workspace')}</strong>.
+        Switch between them here or from the sidebar.
+      </p>
+    </div>
+
+    ${redirectNotice(redirectedFrom)}
+
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <h2 class="section-title">${state.cycles.length ? 'All plans' : 'No plans yet'}</h2>
+          ${progress.planReady
+            ? '<p class="section-sub">Deleting a plan removes its work items, versions, and gates.</p>'
+            : ''}
+        </div>
+        <button type="button" class="btn btn-primary" id="new-plan">+ New plan</button>
+      </div>
+
+      ${state.cycles.length
+        ? `<div class="plan-list">${cards}</div>`
+        : `<div class="empty">
+             <span class="empty-title">Nothing planned yet</span>
+             <p class="empty-body">A plan is a named date range you're staffing — a quarter, a project, a release. Creating one takes about thirty seconds.</p>
+             <button type="button" class="btn btn-primary" id="new-plan-empty">Create your first plan</button>
+           </div>`}
+    </section>
+
+    ${state.workspaces.length > 1
+      ? `<section class="panel">
+           <div class="panel-head">
+             <div>
+               <h2 class="section-title">Workspaces</h2>
+               <p class="section-sub">Separate pools of people and plans. Switching changes everything below it.</p>
+             </div>
+           </div>
+           <label class="field" style="max-width:320px">
+             <span class="field-label">Active workspace</span>
+             <select class="input" id="plans-workspace">${workspaceOptions(state.workspaces, state.activeWorkspaceId)}</select>
+           </label>
+           <div class="btn-row" style="margin-top:14px">
+             <button type="button" class="btn btn-danger btn-sm" id="delete-workspace">Delete this workspace</button>
+           </div>
+         </section>`
+      : ''}
+  `;
+}
+
+/* ── Planner ──────────────────────────────────────────────────────────── */
+
+const TASK_TYPES = [
+  ['general', 'General'],
+  ['deliverable', 'Deliverable'],
+  ['review', 'Review'],
+  ['meeting', 'Meeting'],
+  ['admin', 'Admin'],
+  ['other', 'Other'],
+];
+
+const GATE_TYPES = [
+  ['input_ready', 'Something must be ready'],
+  ['handoff_chain', 'Handoff from someone'],
+  ['external_flag', 'Team agreement'],
+  ['phase_gate', 'Phase milestone'],
+  ['staffing', 'Need a person'],
+  ['review_lag', 'Review after work'],
+  ['blackout', 'Blackout period'],
+];
+
+const GATE_STATUSES = [
+  ['open', 'Still open'],
+  ['met', 'Done'],
+  ['waived', 'Not needed'],
+  ['blocked', 'Blocked'],
+];
+
+function optionList(pairs, selected) {
+  return pairs
+    .map(
+      ([value, label]) =>
+        `<option value="${value}"${selected === value ? ' selected' : ''}>${escapeHtml(label)}</option>`,
+    )
+    .join('');
+}
+
+function gateDrawer(item, deps, allItems, expanded) {
+  if (!expanded) return '';
+
+  const attrs = item.attributes || {};
+  const itemOptions = (selectedId) =>
+    allItems
+      .filter((p) => p.id !== item.id)
+      .map(
+        (p) =>
+          `<option value="${escapeHtml(p.id)}"${p.id === selectedId ? ' selected' : ''}>${escapeHtml(p.title)}</option>`,
+      )
+      .join('');
+
+  const gates = deps
+    .map(
+      (dep) => `
+    <div class="gate-item" data-dep-id="${escapeHtml(dep.id)}">
+      <label class="field">
+        <span class="field-label">What must happen</span>
+        <input class="input input-sm" data-field="label" value="${escapeHtml(dep.label || '')}" placeholder="e.g. Data handed over" />
+      </label>
+      <label class="field">
+        <span class="field-label">Waiting on</span>
+        <select class="input input-sm" data-field="from_plan_item_id">
+          <option value="">Nothing in this plan</option>
+          ${itemOptions(dep.from_plan_item_id || '')}
+        </select>
+      </label>
+      <label class="field">
+        <span class="field-label">Needed by</span>
+        <input class="input input-sm" data-field="dep_due" type="date" value="${dep.meta?.due_date ? escapeHtml(String(dep.meta.due_date).slice(0, 10)) : ''}" />
+      </label>
+      <label class="field">
+        <span class="field-label">Status</span>
+        <select class="input input-sm" data-field="dep_status">${optionList(GATE_STATUSES, dep.status)}</select>
+      </label>
+      <button type="button" class="btn-icon" data-delete-gate="${escapeHtml(dep.id)}" aria-label="Remove this gate">
+        <span aria-hidden="true">×</span>
+      </button>
+      <label class="field span-2" style="grid-column:1/-1">
+        <span class="field-label">Kind of blocker</span>
+        <select class="input input-sm" data-field="dep_type" style="max-width:260px">${optionList(GATE_TYPES, dep.dep_type)}</select>
+      </label>
+    </div>`,
+    )
+    .join('');
+
+  return `
+    <tr class="gate-drawer" data-drawer-for="${escapeHtml(item.id)}">
+      <td colspan="9">
+        <div class="gate-drawer-inner">
+          <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">
+            <label class="field">
+              <span class="field-label">Duration (days)</span>
+              <input class="input input-sm" data-field="duration_days" type="number" step="0.5" min="0"
+                value="${attrs.duration_days ?? ''}" placeholder="—" />
+            </label>
+            <label class="field">
+              <span class="field-label">Phase</span>
+              <input class="input input-sm" data-field="phase" value="${escapeHtml(item.phase || '')}" placeholder="—" />
+            </label>
+          </div>
+
+          <div class="gate-drawer-head">
+            <div>
+              <div class="gate-drawer-title">Gates</div>
+              <p class="gate-drawer-hint">Things that must happen before this row can start. Each open gate pushes the ready-to-start date out.</p>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" data-add-gate="${escapeHtml(item.id)}">+ Add a gate</button>
+          </div>
+
+          ${gates || '<p class="field-hint">No gates on this row — it can start as soon as you are ready.</p>'}
+        </div>
+      </td>
+    </tr>`;
+}
+
+export function renderPlannerView({ state }) {
   const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
-  const isLivePlan = activeScenario?.status === 'active';
+  const isLive = activeScenario?.status === 'active';
+
   const depsByItem = new Map();
   for (const dep of state.dependencies || []) {
     if (!depsByItem.has(dep.to_plan_item_id)) depsByItem.set(dep.to_plan_item_id, []);
     depsByItem.get(dep.to_plan_item_id).push(dep);
   }
-  const readinessByItem = new Map(
-    (state.readiness || []).map((r) => [r.plan_item_id, r]),
-  );
-
-  const itemOptions = (currentId, selectedId = '') =>
-    state.planItems
-      .filter((p) => p.id !== currentId)
-      .map(
-        (p) =>
-          `<option value="${escapeAttr(p.id)}"${p.id === selectedId ? ' selected' : ''}>${escapeAttr(p.title)}</option>`,
-      )
-      .join('');
-
-  const depTypeOptions = (selected) =>
-    [
-      ['input_ready', 'Something must be ready'],
-      ['handoff_chain', 'Handoff from someone'],
-      ['external_flag', 'Team agreement'],
-      ['phase_gate', 'Phase milestone'],
-      ['staffing', 'Need a person'],
-      ['review_lag', 'Review after work'],
-      ['blackout', 'Blackout period'],
-    ]
-      .map(([v, label]) => `<option value="${v}"${selected === v ? ' selected' : ''}>${label}</option>`)
-      .join('');
-
-  const taskTypeOptions = (selected = 'general') =>
-    [
-      ['general', 'General'],
-      ['deliverable', 'Deliverable'],
-      ['review', 'Review'],
-      ['meeting', 'Meeting'],
-      ['admin', 'Admin'],
-      ['other', 'Other'],
-    ]
-      .map(([v, label]) => `<option value="${v}"${selected === v ? ' selected' : ''}>${label}</option>`)
-      .join('');
-
-  const statusOptions = (selected) =>
-    ['open', 'met', 'waived', 'blocked']
-      .map((s) => `<option value="${s}"${selected === s ? ' selected' : ''}>${s}</option>`)
-      .join('');
+  const readinessByItem = new Map((state.readiness || []).map((r) => [r.plan_item_id, r]));
 
   const rows = state.planItems
     .map((item, index) => {
       const attrs = item.attributes || {};
       const deps = depsByItem.get(item.id) || [];
-      const primary = deps[0] || null;
-      const extra = deps.slice(1);
       const ready = readinessByItem.get(item.id);
-      const readyLabel = ready?.blocked
-        ? `<span class="badge badge-warn">Blocked</span>`
+      const expanded = state.expandedRows.has(item.id);
+      const openGates = deps.filter((d) => d.status === 'open' || d.status === 'blocked').length;
+
+      const readyCell = ready?.blocked
+        ? '<span class="badge badge-bad">Blocked</span>'
         : ready?.ready_to_start
-          ? `<span class="badge badge-ok">${escapeHtml(String(ready.ready_to_start).slice(0, 10))}</span>`
-          : '—';
+          ? `<span class="badge badge-ok">${escapeHtml(prettyDate(ready.ready_to_start))}</span>`
+          : '<span class="badge">Anytime</span>';
 
-      const extraRows = extra
-        .map(
-          (dep) => `<tr class="planner-subrow" data-dep-id="${escapeAttr(dep.id)}" data-parent-id="${escapeAttr(item.id)}">
-            <td></td>
-            <td colspan="2" class="planner-sub-indent">↳ Gate</td>
-            <td colspan="2"></td>
-            <td>
-              <select class="field-input field-sm" data-field="from_plan_item_id">
-                <option value="">—</option>
-                ${itemOptions(item.id, dep.from_plan_item_id || '')}
-              </select>
-            </td>
-            <td><input class="field-input field-sm" data-field="label" value="${escapeAttr(dep.label || '')}" placeholder="Gate name" /></td>
-            <td><input class="field-input field-sm" data-field="dep_due" type="date" value="${dep.meta?.due_date ? String(dep.meta.due_date).slice(0, 10) : ''}" /></td>
-            <td><select class="field-input field-sm" data-field="dep_status">${statusOptions(dep.status)}</select></td>
-            <td><select class="field-input field-sm" data-field="dep_type">${depTypeOptions(dep.dep_type)}</select></td>
-            <td></td>
-            <td><button type="button" class="btn btn-ghost btn-sm btn-delete-dep">×</button></td>
-          </tr>`,
-        )
-        .join('');
+      const gateLabel = deps.length
+        ? `${deps.length} gate${deps.length === 1 ? '' : 's'}`
+        : 'Details';
+      const gateClass = ready?.blocked ? 'blocked' : deps.length ? 'has-gates' : '';
 
-      return `<tr class="planner-row" data-id="${escapeAttr(item.id)}" data-dep-id="${escapeAttr(primary?.id || '')}">
+      return `
+      <tr class="planner-row${ready?.blocked ? ' blocked' : ''}" data-id="${escapeHtml(item.id)}">
         <td class="planner-num">${index + 1}</td>
-        <td><input class="field-input field-sm" data-field="title" value="${escapeAttr(item.title)}" /></td>
-        <td><select class="field-input field-sm" data-field="task_type">${taskTypeOptions(attrs.task_type || 'general')}</select></td>
-        <td><input class="field-input field-sm" data-field="duration_days" type="number" step="0.5" min="0" value="${attrs.duration_days ?? ''}" placeholder="—" /></td>
-        <td><input class="field-input field-sm" data-field="work_hours" type="number" step="0.5" value="${item.work_hours ?? 0}" /></td>
-        <td><input class="field-input field-sm" data-field="start_date" type="date" value="${attrs.start_date ? String(attrs.start_date).slice(0, 10) : ''}" /></td>
-        <td><input class="field-input field-sm" data-field="due_week" type="date" value="${item.due_week ? String(item.due_week).slice(0, 10) : ''}" /></td>
+        <td class="planner-title-col">
+          <input class="input input-sm" data-field="title" value="${escapeHtml(item.title)}" aria-label="Title" />
+        </td>
         <td>
-          <select class="field-input field-sm" data-field="from_plan_item_id">
-            <option value="">—</option>
-            ${itemOptions(item.id, primary?.from_plan_item_id || '')}
-          </select>
+          <select class="input input-sm" data-field="task_type" aria-label="Type">${optionList(TASK_TYPES, attrs.task_type || 'general')}</select>
         </td>
-        <td><input class="field-input field-sm" data-field="label" value="${escapeAttr(primary?.label || '')}" placeholder="What must be ready?" /></td>
-        <td><input class="field-input field-sm" data-field="dep_due" type="date" value="${primary?.meta?.due_date ? String(primary.meta.due_date).slice(0, 10) : ''}" /></td>
-        <td><select class="field-input field-sm" data-field="dep_status">${statusOptions(primary?.status || 'open')}</select></td>
-        <td><select class="field-input field-sm" data-field="dep_type">${depTypeOptions(primary?.dep_type || 'input_ready')}</select></td>
-        <td class="planner-ready">${readyLabel}</td>
-        <td><input class="field-input field-sm" data-field="phase" value="${escapeAttr(item.phase || '')}" /></td>
+        <td>
+          <input class="input input-sm" data-field="work_hours" type="number" step="0.5" min="0"
+            value="${item.work_hours ?? 0}" aria-label="Work hours" style="max-width:80px" />
+        </td>
+        <td>
+          <input class="input input-sm" data-field="start_date" type="date"
+            value="${attrs.start_date ? escapeHtml(String(attrs.start_date).slice(0, 10)) : ''}" aria-label="Start date" />
+        </td>
+        <td>
+          <input class="input input-sm" data-field="due_week" type="date"
+            value="${item.due_week ? escapeHtml(String(item.due_week).slice(0, 10)) : ''}" aria-label="Due date" />
+        </td>
+        <td>
+          <button type="button" class="gate-toggle ${gateClass}" data-toggle-row="${escapeHtml(item.id)}"
+            aria-expanded="${expanded}">
+            <span class="gate-caret" aria-hidden="true">${expanded ? '▾' : '▸'}</span>
+            ${escapeHtml(gateLabel)}${openGates ? ` · ${openGates} open` : ''}
+          </button>
+        </td>
+        <td>${readyCell}</td>
         <td class="planner-actions">
-          <button type="button" class="btn btn-ghost btn-sm btn-add-gate" title="Add another gate">+</button>
-          ${primary?.id ? '<button type="button" class="btn btn-ghost btn-sm btn-delete-dep" title="Remove gate">×</button>' : ''}
-          <button type="button" class="btn btn-ghost btn-sm btn-delete-item" title="Remove row">×</button>
+          <button type="button" class="btn-icon" data-delete-item="${escapeHtml(item.id)}" aria-label="Delete ${escapeHtml(item.title)}">
+            <span aria-hidden="true">×</span>
+          </button>
         </td>
-      </tr>${extraRows}`;
+      </tr>
+      ${gateDrawer(item, deps, state.planItems, expanded)}`;
     })
     .join('');
 
   const importPreview = state.importPreview
-    ? `<div class="import-preview">
-        <p><strong>Import preview:</strong> ${state.importPreview.count} rows</p>
-        <button type="button" class="btn btn-refresh-solid btn-sm" id="confirm-import">Commit import</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="cancel-import">Cancel</button>
-      </div>`
+    ? `<div class="notice notice-info">
+         <strong>${state.importPreview.count} rows</strong> ready to import.
+         <div class="btn-row" style="margin-top:10px">
+           <button type="button" class="btn btn-primary btn-sm" id="confirm-import">Import them</button>
+           <button type="button" class="btn btn-ghost btn-sm" id="cancel-import">Cancel</button>
+         </div>
+       </div>`
     : '';
 
+  const empty = !state.planItems.length;
+
   return `
+    <div class="page-bar">
+      <div class="page-head">
+        <p class="eyebrow">Planner</p>
+        <h1 class="page-title">The work</h1>
+        <p class="page-lead">
+          One row per thing that needs doing — deliverables, reviews, meetings, whatever else.
+          Hours and a due date are what drive the capacity grid.
+        </p>
+      </div>
+      <div class="btn-row">
+        ${state.isDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
+        <button type="button" class="btn btn-primary" id="save-planner"${state.isDirty ? '' : ' disabled'}>Save changes</button>
+      </div>
+    </div>
+
     <section class="panel">
-      <div class="panel-head">
-        <div>
-          <h1 class="omc-title">Planner</h1>
-          <p class="omc-lead">One list for all work — deliverables, reviews, meetings, anything else. Use <strong>Type</strong> to label rows. Use <strong>Gate</strong> for what must happen first (including team agreements).</p>
-        </div>
-        <div class="btn-row">
-          <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
-          <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
-        </div>
-      </div>
-
       <div class="planner-toolbar">
-        <div class="view-toggle" role="group" aria-label="Plan mode">
-          <button type="button" class="view-toggle-btn${!isLivePlan ? ' active' : ''}" id="mode-draft">Working draft</button>
-          <button type="button" class="view-toggle-btn${isLivePlan ? ' active' : ''}" id="mode-live">Live plan</button>
+        <div>
+          <span class="field-label" style="display:block;margin-bottom:6px">Version</span>
+          <div class="toggle-group" role="group" aria-label="Plan version">
+            <button type="button" class="toggle-btn${!isLive ? ' active' : ''}" id="mode-draft">Working draft</button>
+            <button type="button" class="toggle-btn${isLive ? ' active' : ''}" id="mode-live">Live plan</button>
+          </div>
         </div>
         <div class="btn-row">
+          <select id="scenario-select" class="input input-sm" aria-label="Version" style="max-width:200px">
+            ${scenarioOptions(state.scenarios, state.activeScenarioId)}
+          </select>
           <button type="button" class="btn btn-ghost btn-sm" id="create-scenario">New draft</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="delete-scenario"${(state.scenarios?.length || 0) <= 1 ? ' disabled' : ''} title="Delete this scenario">Delete scenario</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="finalize-scenario"${isLivePlan ? ' disabled' : ''}>Mark as live plan</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export CSV</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Check drift</button>
-          <button type="button" class="btn btn-refresh-solid btn-sm" id="save-planner">Save plan</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="finalize-scenario"${isLive ? ' disabled' : ''}>Make this the live plan</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="delete-scenario"${(state.scenarios?.length || 0) <= 1 ? ' disabled' : ''}>Delete version</button>
         </div>
       </div>
-      <p class="planner-mode-note omc-lead">
-        ${isLivePlan
-          ? '<strong>Live plan</strong> — this is the version you are working from. You can still change it anytime; click Save plan when you are done editing.'
-          : '<strong>Draft</strong> — try ideas here first. When you are happy, click Mark as live plan.'}
+      <p class="mode-note" style="margin-top:12px">
+        ${isLive
+          ? '<strong>Live plan</strong> — the version everyone works from. Edits here are real; try risky ideas in a draft instead.'
+          : '<strong>Working draft</strong> — a scratch copy. Nothing here counts until you make it the live plan.'}
       </p>
+    </section>
 
-      ${!state.planItems?.length ? `
-      <div class="planner-welcome">
-        <h2 class="omc-section-title">What are you actually planning?</h2>
-        <p class="omc-lead">Add your first row below — title, type, hours, due date. List everything you need to get done this period; capacity checks come after.</p>
-      </div>` : ''}
+    ${empty
+      ? `<div class="empty">
+           <span class="empty-title">Nothing listed yet</span>
+           <p class="empty-body">
+             Add the first piece of work below. Give it hours and a due date and it will show up
+             on the capacity grid straight away — you don't need your team in place first.
+           </p>
+         </div>`
+      : ''}
 
-      <div class="form-grid planner-quick-add" style="margin-bottom:14px">
-        <label class="field field-span-2">
-          <span class="field-label">Quick add row</span>
-          <input id="new-item-title" class="field-input" placeholder="Task title" />
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:12px">Add work</h2>
+      <div class="quick-add">
+        <label class="field">
+          <span class="field-label">What needs doing</span>
+          <input id="new-item-title" class="input" placeholder="e.g. Draft the Q1 forecast" autocomplete="off" />
         </label>
         <label class="field">
           <span class="field-label">Type</span>
-          <select id="new-item-type" class="field-input">
-            <option value="general">General</option>
-            <option value="deliverable">Deliverable</option>
-            <option value="review">Review</option>
-            <option value="meeting">Meeting</option>
-            <option value="admin">Admin</option>
-            <option value="other">Other</option>
-          </select>
+          <select id="new-item-type" class="input">${optionList(TASK_TYPES, 'general')}</select>
         </label>
         <label class="field">
-          <span class="field-label">Days</span>
-          <input id="new-item-days" class="field-input" type="number" step="0.5" placeholder="5" />
-        </label>
-        <label class="field">
-          <span class="field-label">Work hours</span>
-          <input id="new-item-hours" class="field-input" type="number" value="8" />
+          <span class="field-label">Hours</span>
+          <input id="new-item-hours" class="input" type="number" step="0.5" min="0" value="8" />
         </label>
         <label class="field">
           <span class="field-label">Due</span>
-          <input id="new-item-due" class="field-input" type="date" />
+          <input id="new-item-due" class="input" type="date" />
         </label>
-        <div class="field" style="align-self:end">
-          <button type="button" class="btn btn-refresh-solid" id="add-plan-item">Add row</button>
+        <button type="button" class="btn btn-primary" id="add-plan-item">Add row</button>
+      </div>
+    </section>
+
+    ${state.planItems.length
+      ? `<section class="panel panel-flush">
+           <div class="table-scroll">
+             <table class="table planner-table">
+               <thead>
+                 <tr>
+                   <th></th>
+                   <th>What</th>
+                   <th>Type</th>
+                   <th>Hours</th>
+                   <th>Start</th>
+                   <th>Due</th>
+                   <th>Details</th>
+                   <th>Can start</th>
+                   <th></th>
+                 </tr>
+               </thead>
+               <tbody>${rows}</tbody>
+             </table>
+           </div>
+         </section>`
+      : ''}
+
+    <section class="panel">
+      ${importPreview}
+      <details class="disclosure" style="border-top:none;padding-top:0">
+        <summary>Import, export, and drift</summary>
+        <div class="disclosure-body">
+          <label class="field">
+            <span class="field-label">Paste CSV</span>
+            <p class="field-hint">Columns: <span class="mono">title, work_hours, due_week, phase</span></p>
+            <textarea id="import-csv" class="input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1"></textarea>
+          </label>
+          <div class="btn-row">
+            <button type="button" class="btn btn-ghost btn-sm" id="preview-import">Preview import</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="export-plan">Export this plan as CSV</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="check-drift">Compare to last import</button>
+          </div>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+/* ── Capacity ─────────────────────────────────────────────────────────── */
+
+function formatPeriodLabel(key, granularity) {
+  if (granularity === 'month' && /^\d{4}-\d{2}$/.test(key)) {
+    const [year, month] = key.split('-').map(Number);
+    return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('en-US', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+  const d = new Date(`${key}T00:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return key;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function teamTabs(teams, activeTeam) {
+  if (!teams?.length) return '';
+  const tabs = [
+    `<button type="button" class="pill-tab${!activeTeam ? ' active' : ''}" data-team="">Everyone</button>`,
+    ...teams.map(
+      (t) =>
+        `<button type="button" class="pill-tab${activeTeam === t ? ' active' : ''}" data-team="${escapeHtml(t)}">${escapeHtml(t)}</button>`,
+    ),
+  ];
+  return `<div class="pill-tabs">${tabs.join('')}</div>`;
+}
+
+export function renderCapacityView({ state }) {
+  const progress = getSetupProgress(state);
+  const grid = state.capacity;
+
+  const head = `
+    <div class="page-head">
+      <p class="eyebrow">Capacity</p>
+      <h1 class="page-title">Who has room</h1>
+      <p class="page-lead">
+        Hours each person is carrying, period by period. Green means room to spare,
+        amber means it's getting tight, red means more work than hours.
+      </p>
+    </div>`;
+
+  if (!progress.hasTeam) {
+    return `${head}
+      <div class="empty">
+        <span class="empty-title">No one to show yet</span>
+        <p class="empty-body">
+          Capacity compares planned hours against people's available hours — so it needs
+          at least one person. Add your team and this grid fills itself in.
+        </p>
+        <a class="btn btn-primary" href="#/team">Add your team</a>
+      </div>`;
+  }
+
+  if (!progress.hasWork) {
+    return `${head}
+      <div class="empty">
+        <span class="empty-title">No work to measure</span>
+        <p class="empty-body">Your team is set up, but there's nothing planned against them yet. List some work and it'll land here.</p>
+        <a class="btn btn-primary" href="#/planner">Go to the Planner</a>
+      </div>`;
+  }
+
+  if (!grid) {
+    return `${head}<section class="panel"><p class="page-lead">Loading capacity…</p></section>`;
+  }
+
+  const granularity = grid.granularity || state.capacityGranularity || 'week';
+  const periodHeaders = grid.weeks
+    .map((w) => `<th class="cap-period">${escapeHtml(formatPeriodLabel(w, granularity))}</th>`)
+    .join('');
+
+  let overloadedCells = 0;
+  const rows = grid.rows
+    .map((row) => {
+      const cells = row.weeks
+        .map((cell) => {
+          if (cell.band === 'red' || cell.overloaded) overloadedCells += 1;
+          const title = `${cell.load}h planned of ${cell.capacity}h available · ${cell.remaining}h left`;
+          return `<td class="${capacityCellClass(cell)}" title="${escapeHtml(title)}">
+            <span class="cap-load">${cell.load || '·'}</span>
+            <span class="cap-rem">${cell.remaining}h left</span>
+          </td>`;
+        })
+        .join('');
+      return `<tr>
+        <th class="cap-person" scope="row">${escapeHtml(row.name)}<span class="cap-team">${escapeHtml(row.team || 'no role set')}</span></th>
+        ${cells}
+      </tr>`;
+    })
+    .join('');
+
+  const openGates = (state.dependencies || []).filter(
+    (d) => d.status === 'open' || d.status === 'blocked',
+  );
+
+  return `
+    <div class="page-bar">
+      ${head}
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost btn-sm" id="export-capacity">Export CSV</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="refresh-capacity">Refresh</button>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="stat-row" style="margin-bottom:16px">
+        <div class="stat"><span class="stat-num">${grid.rows.length}</span><span class="stat-label">people</span></div>
+        <div class="stat"><span class="stat-num">${grid.weeks.length}</span><span class="stat-label">${escapeHtml(granularity)}s</span></div>
+        <div class="stat${overloadedCells ? ' warn' : ''}">
+          <span class="stat-num">${overloadedCells}</span><span class="stat-label">overloaded</span>
+        </div>
+        <div class="stat"><span class="stat-num">${state.planItems.length}</span><span class="stat-label">work items</span></div>
+      </div>
+
+      <div class="planner-toolbar" style="margin-bottom:14px">
+        ${teamTabs(grid.teams || state.teams, state.activeTeamFilter)}
+        <div class="btn-row">
+          <div class="toggle-group" role="group" aria-label="Time granularity">
+            <button type="button" class="toggle-btn${granularity === 'week' ? ' active' : ''}" id="cap-granularity-week">Weeks</button>
+            <button type="button" class="toggle-btn${granularity === 'month' ? ' active' : ''}" id="cap-granularity-month">Months</button>
+          </div>
+          <label class="field">
+            <span class="sr-only">How hours are counted</span>
+            <select id="cap-mode" class="input input-sm" title="How each item's hours land on the grid">
+              <option value="due"${grid.mode === 'due' ? ' selected' : ''}>All hours land in the due period</option>
+              <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread hours across the work</option>
+            </select>
+          </label>
         </div>
       </div>
 
-      <details class="planner-import">
-        <summary>Import from CSV</summary>
-        <div class="form-grid" style="margin-top:10px">
-          <label class="field field-span-2">
-            <span class="field-label">CSV (title, work_hours, due_week, phase)</span>
-            <textarea id="import-csv" class="field-input" rows="3" placeholder="title,work_hours,due_week,phase&#10;Task A,8,2026-01-12,Phase 1"></textarea>
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-ghost" id="preview-import">Preview CSV</button>
-          </div>
-        </div>
-        ${importPreview}
-      </details>
+      ${openGates.length
+        ? `<div class="notice notice-warn" style="margin-bottom:14px">
+             <strong>${openGates.length} open gate${openGates.length === 1 ? '' : 's'}</strong> — some of this work can't start yet.
+             <a href="#/alerts">See what's blocking it</a>.
+           </div>`
+        : ''}
 
-      <div class="cap-scroll planner-scroll">
-        <table class="data-table planner-table" id="planner-table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Title</th>
-              <th>Type</th>
-              <th>Days</th>
-              <th>Work h</th>
-              <th>Start</th>
-              <th>Due</th>
-              <th>Predecessor</th>
-              <th>Gate</th>
-              <th>Gate due</th>
-              <th>Status</th>
-              <th>Gate type</th>
-              <th>Ready</th>
-              <th>Phase</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>${rows || '<tr><td colspan="15">No rows yet — add your first task above.</td></tr>'}</tbody>
+      <div class="legend" style="margin-bottom:10px">
+        <span class="legend-item"><span class="swatch ok"></span> Room to spare</span>
+        <span class="legend-item"><span class="swatch tight"></span> Getting tight</span>
+        <span class="legend-item"><span class="swatch over"></span> Overloaded</span>
+        <span class="legend-item" style="margin-left:auto;color:var(--faint)">Top number is hours planned</span>
+      </div>
+
+      <div class="table-scroll">
+        <table class="table cap-table">
+          <thead><tr><th class="cap-person">Person</th>${periodHeaders}</tr></thead>
+          <tbody>${rows}</tbody>
         </table>
       </div>
     </section>
   `;
 }
 
-/** @deprecated use renderPlannerView */
-export function renderPlanView(props) {
-  return renderPlannerView(props);
+/* ── Alerts ───────────────────────────────────────────────────────────── */
+
+const ALERT_ADVICE = {
+  overload: 'Move some of this work to a later period, or hand it to someone with room.',
+  tight_capacity: 'Still fits, but there is no slack left for anything unplanned.',
+  due_proximity: 'Coming up soon — check it is actually underway.',
+  overdue: 'The due date has passed. Move it out or mark the work done.',
+  readiness_gap: 'Open gates are holding this up. Clear them or waive them in the Planner.',
+  gate_proximity: 'A gate is due soon. Chase whoever owns it.',
+};
+
+export function renderAlertsView({ state }) {
+  const groups = { high: [], medium: [], low: [] };
+  for (const alert of state.alerts || []) {
+    groups[alert.severity]?.push(alert);
+  }
+
+  const head = `
+    <div class="page-bar">
+      <div class="page-head">
+        <p class="eyebrow">Alerts</p>
+        <h1 class="page-title">What needs attention</h1>
+        <p class="page-lead">
+          Overloaded people, dates slipping past, and work stuck behind a gate —
+          worked out from this plan alone, no external tools involved.
+        </p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="refresh-alerts">Refresh</button>
+    </div>`;
+
+  if (!state.alerts?.length) {
+    return `${head}
+      <div class="empty">
+        <span class="empty-title">Nothing to flag</span>
+        <p class="empty-body">No overloads, no overdue work, nothing blocked. Check back after your next round of edits.</p>
+      </div>`;
+  }
+
+  const renderGroup = (title, items, severity) => {
+    if (!items.length) return '';
+    const rows = items
+      .map((a) => {
+        const meta = [a.resource_name, a.team, a.week && `week of ${prettyDate(a.week)}`, a.due_week && `due ${prettyDate(a.due_week)}`]
+          .filter(Boolean)
+          .join(' · ');
+        return `
+        <div class="alert-item ${severity}">
+          <div>
+            <div class="alert-msg">${escapeHtml(a.message)}</div>
+            ${meta ? `<div class="alert-meta">${escapeHtml(meta)}</div>` : ''}
+            ${ALERT_ADVICE[a.type] ? `<div class="alert-fix">${escapeHtml(ALERT_ADVICE[a.type])}</div>` : ''}
+          </div>
+        </div>`;
+      })
+      .join('');
+    return `
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="section-title">${escapeHtml(title)}</h2>
+          <span class="badge">${items.length}</span>
+        </div>
+        <div class="alert-group">${rows}</div>
+      </section>`;
+  };
+
+  return `
+    ${head}
+    <div class="stat-row">
+      <div class="stat${state.alertCounts?.high ? ' warn' : ''}">
+        <span class="stat-num">${state.alertCounts?.high ?? 0}</span><span class="stat-label">need action</span>
+      </div>
+      <div class="stat"><span class="stat-num">${state.alertCounts?.medium ?? 0}</span><span class="stat-label">worth a look</span></div>
+      <div class="stat"><span class="stat-num">${state.alertCounts?.low ?? 0}</span><span class="stat-label">for info</span></div>
+    </div>
+    ${renderGroup('Need action', groups.high, 'high')}
+    ${renderGroup('Worth a look', groups.medium, 'medium')}
+    ${renderGroup('For information', groups.low, 'low')}
+  `;
 }
 
-export function renderDependenciesView({ state, escapeHtml, cycleOptions, scenarioOptionsHtml }) {
-  const depRows = (state.dependencies || [])
+/* ── Team ─────────────────────────────────────────────────────────────── */
+
+export function renderTeamView({ state }) {
+  const rows = state.resources
     .map(
-      (d) => `<tr data-id="${escapeAttr(d.id)}">
-        <td>${escapeHtml(d.label || d.dep_type)}</td>
-        <td>${escapeHtml(d.from_title || '—')}</td>
-        <td>${escapeHtml(d.to_title || '—')}</td>
-        <td><span class="badge">${escapeHtml(d.dep_type)}</span></td>
-        <td>
-          <select class="field-input field-sm" data-field="status">
-            ${['open', 'met', 'waived', 'blocked']
-              .map(
-                (s) =>
-                  `<option value="${s}"${d.status === s ? ' selected' : ''}>${s}</option>`,
-              )
-              .join('')}
-          </select>
-        </td>
-        <td><button type="button" class="btn btn-ghost btn-sm btn-delete-dep">Delete</button></td>
-      </tr>`,
+      (r) => `
+    <tr data-id="${escapeHtml(r.id)}">
+      <td><input class="input input-sm" data-field="name" value="${escapeHtml(r.name)}" aria-label="Name" /></td>
+      <td><input class="input input-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Role" aria-label="Role" /></td>
+      <td>
+        <input class="input input-sm" data-field="weekly_hours" type="number" step="0.5" min="0"
+          value="${r.profiles?.[0]?.weekly_hours ?? 32}" aria-label="Hours per week" style="max-width:90px" />
+      </td>
+      <td>${(r.time_off || []).length ? `<span class="badge">${r.time_off.length} booked</span>` : '<span class="badge">—</span>'}</td>
+      <td class="planner-actions">
+        <button type="button" class="btn-icon" data-delete-resource="${escapeHtml(r.id)}" aria-label="Remove ${escapeHtml(r.name)}">
+          <span aria-hidden="true">×</span>
+        </button>
+      </td>
+    </tr>`,
     )
     .join('');
 
-  const readinessRows = (state.readiness || [])
+  const ptoList = state.resources
+    .filter((r) => r.time_off?.length)
     .map(
-      (r) => `<tr>
-        <td>${escapeHtml(r.title)}</td>
-        <td>${r.ready_to_start || '—'}</td>
-        <td>${r.blocked ? '<span class="badge badge-warn">Blocked</span>' : '<span class="badge badge-ok">Ready</span>'}</td>
-        <td>${escapeHtml((r.blockers || []).map((b) => b.label).join(', ') || '—')}</td>
-      </tr>`,
+      (r) => `
+      <li style="margin-bottom:10px">
+        <strong>${escapeHtml(r.name)}</strong>
+        ${r.time_off
+          .map(
+            (t) => `<div class="alert-meta">
+              ${escapeHtml(prettyDate(t.start_date))} → ${escapeHtml(prettyDate(t.end_date))}
+              (${t.hours_per_day != null ? `${escapeHtml(String(t.hours_per_day))}h/day` : 'full days'})
+              <button type="button" class="btn-icon" data-delete-pto="${escapeHtml(t.id)}" aria-label="Remove this time off">
+                <span aria-hidden="true">×</span>
+              </button>
+            </div>`,
+          )
+          .join('')}
+      </li>`,
     )
-    .join('');
-
-  const planOptions = state.planItems
-    .map((p) => `<option value="${escapeAttr(p.id)}">${escapeAttr(p.title)}</option>`)
     .join('');
 
   return `
-    <section class="panel" style="margin-bottom:16px">
-      <div class="panel-head">
-        <div>
-          <h1 class="omc-title">Dependencies & Readiness</h1>
-          <p class="omc-lead">Model gates that block ready-to-start dates.</p>
-        </div>
-        <div class="btn-row">
-          <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
-          <select id="scenario-select" class="field-input">${scenarioOptionsHtml}</select>
-        </div>
+    <div class="page-bar">
+      <div class="page-head">
+        <p class="eyebrow">Team</p>
+        <h1 class="page-title">Who's available</h1>
+        <p class="page-lead">
+          One row per person, with the hours a week they can give to planned work.
+          These numbers are the denominator behind every capacity cell.
+        </p>
       </div>
+      <div class="btn-row">
+        ${state.teamDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
+        <button type="button" class="btn btn-primary" id="save-team"${state.teamDirty ? '' : ' disabled'}>Save changes</button>
+      </div>
+    </div>
 
-      <div class="form-grid" style="margin-bottom:12px">
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:12px">Add someone</h2>
+      <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,1.5fr) minmax(0,0.8fr) auto">
         <label class="field">
-          <span class="field-label">Label</span>
-          <input id="new-dep-label" class="field-input" placeholder="PBC received" />
+          <span class="field-label">Name</span>
+          <input id="new-resource-name" class="input" placeholder="Alex Rivera" autocomplete="off" />
         </label>
         <label class="field">
-          <span class="field-label">Type</span>
-          <select id="new-dep-type" class="field-input">
-            <option value="evidence_ready">Evidence ready</option>
-            <option value="sample_chain">Sample chain</option>
-            <option value="review_lag">Review lag</option>
-            <option value="phase_gate">Phase gate</option>
-            <option value="staffing">Staffing</option>
-            <option value="external_flag">External flag</option>
-            <option value="blackout">Blackout</option>
-          </select>
+          <span class="field-label">Role</span>
+          <input id="new-resource-team" class="input" placeholder="Analyst" autocomplete="off" />
         </label>
         <label class="field">
-          <span class="field-label">Blocks item</span>
-          <select id="new-dep-to" class="field-input">${planOptions}</select>
+          <span class="field-label">Hours/week</span>
+          <input id="new-resource-hours" class="input" type="number" step="0.5" min="0" value="32" />
         </label>
-        <label class="field">
-          <span class="field-label">Predecessor (optional)</span>
-          <select id="new-dep-from" class="field-input">
-            <option value="">—</option>${planOptions}
-          </select>
-        </label>
-        <div class="field" style="align-self:end">
-          <button type="button" class="btn btn-refresh-solid" id="add-dependency">Add gate</button>
-        </div>
+        <button type="button" class="btn btn-primary" id="add-resource">Add</button>
       </div>
+      <p class="field-hint" style="margin-top:10px">
+        Hours/week is time genuinely available for planned work. 32 is a common starting point for a 40-hour week.
+      </p>
+    </section>
 
+    ${state.resources.length
+      ? `<section class="panel panel-flush">
+           <div class="table-scroll">
+             <table class="table">
+               <thead><tr><th>Name</th><th>Role</th><th>Hours/week</th><th>Time off</th><th></th></tr></thead>
+               <tbody>${rows}</tbody>
+             </table>
+           </div>
+         </section>`
+      : `<div class="empty">
+           <span class="empty-title">No one here yet</span>
+           <p class="empty-body">Add your first person above. Capacity stays empty until at least one person exists.</p>
+         </div>`}
+
+    ${state.resources.length
+      ? `<section class="panel">
+           <div class="panel-head">
+             <div>
+               <h2 class="section-title">Time off</h2>
+               <p class="section-sub">Booked leave is subtracted from someone's available hours for those dates.</p>
+             </div>
+           </div>
+           <div class="quick-add" style="grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto">
+             <label class="field">
+               <span class="field-label">Person</span>
+               <select id="pto-resource" class="input">
+                 ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
+               </select>
+             </label>
+             <label class="field">
+               <span class="field-label">From</span>
+               <input id="pto-start" class="input" type="date" />
+             </label>
+             <label class="field">
+               <span class="field-label">To</span>
+               <input id="pto-end" class="input" type="date" />
+             </label>
+             <label class="field">
+               <span class="field-label">Hours/day</span>
+               <input id="pto-hours" class="input" type="number" step="0.5" min="0" placeholder="blank = all day" />
+             </label>
+             <button type="button" class="btn btn-ghost" id="add-pto">Book it</button>
+           </div>
+           ${ptoList
+             ? `<ul style="list-style:none;margin-top:18px">${ptoList}</ul>`
+             : '<p class="field-hint" style="margin-top:14px">Nothing booked yet.</p>'}
+         </section>`
+      : ''}
+  `;
+}
+
+/* ── Settings (planning rules) ────────────────────────────────────────── */
+
+export function renderRulesView({ state }) {
+  const policy = state.policy?.config || {};
+  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
+
+  const fields = [
+    ['policy-weekly', 'Default hours per week', policy.weekly_capacity_default ?? 32, 1, 'Used for anyone without their own number on the Team page.'],
+    ['policy-yellow', 'Amber below (hours left)', policy.band_yellow_remaining ?? 8, 1, 'A cell turns amber once someone has fewer than this many hours spare.'],
+    ['policy-threshold', 'Overload at (× capacity)', policy.overload_threshold ?? 1, 0.05, 'Where red starts. 1 means red as soon as planned hours pass available hours.'],
+    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out Alerts looks for upcoming due dates.'],
+    ['policy-review', 'Review ratio', policy.review_ratio ?? 0.35, 0.01, 'Extra review effort added on top of each item, as a fraction of its hours.'],
+    ['policy-review-floor', 'Minimum review hours', policy.review_floor_hours ?? 0, 0.5, 'Review effort never drops below this, however small the item.'],
+  ];
+
+  return `
+    <div class="page-head">
+      <p class="eyebrow">Settings</p>
+      <h1 class="page-title">Planning rules</h1>
+      <p class="page-lead">
+        How <strong>${escapeHtml(cycle?.name || 'this plan')}</strong> decides what counts as tight or overloaded.
+        These apply to this plan only.
+      </p>
+    </div>
+
+    <section class="panel">
       <div class="panel-head">
-        <h2 class="omc-section-title">Dependency gates</h2>
-        <button type="button" class="btn btn-ghost btn-sm" id="save-dependencies">Save status</button>
+        <h2 class="section-title">Thresholds</h2>
+        <button type="button" class="btn btn-primary btn-sm" id="save-policy">Save rules</button>
       </div>
-      <table class="data-table" id="dependencies-table">
-        <thead><tr><th>Label</th><th>From</th><th>Blocks</th><th>Type</th><th>Status</th><th></th></tr></thead>
-        <tbody>${depRows || '<tr><td colspan="6">No dependencies yet.</td></tr>'}</tbody>
-      </table>
+      <div class="form-grid">
+        ${fields
+          .map(
+            ([id, label, value, step, hint]) => `
+          <label class="field">
+            <span class="field-label">${escapeHtml(label)}</span>
+            <input id="${id}" class="input" type="number" step="${step}" value="${escapeHtml(String(value))}" />
+            <span class="field-hint">${escapeHtml(hint)}</span>
+          </label>`,
+          )
+          .join('')}
+      </div>
     </section>
 
     <section class="panel">
-      <h2 class="omc-section-title">Readiness summary</h2>
-      <table class="data-table">
-        <thead><tr><th>Plan item</th><th>Ready to start</th><th>Status</th><th>Blockers</th></tr></thead>
-        <tbody>${readinessRows || '<tr><td colspan="4">Add plan items and dependencies.</td></tr>'}</tbody>
-      </table>
+      <div class="panel-head">
+        <div>
+          <h2 class="section-title">Tracking granularity</h2>
+          <p class="section-sub">Changes the columns on the capacity grid.</p>
+        </div>
+      </div>
+      <div class="toggle-group" role="group" aria-label="Tracking granularity">
+        ${['week', 'month']
+          .map(
+            (g) =>
+              `<button type="button" class="toggle-btn${(policy.tracking_granularity || 'week') === g ? ' active' : ''}" data-granularity="${g}">${g[0].toUpperCase()}${g.slice(1)}</button>`,
+          )
+          .join('')}
+      </div>
+      ${policy.tracking_granularity === 'day'
+        ? `<p class="field-hint" style="margin-top:10px">
+             This plan was set to day-level tracking, which the capacity grid doesn't draw yet —
+             it's showing weeks. Pick one above to make that explicit.
+           </p>`
+        : ''}
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:12px">Recent changes</h2>
+      ${(state.changelog || []).length
+        ? `<ul style="list-style:none;display:flex;flex-direction:column;gap:8px">
+             ${state.changelog
+               .slice(0, 20)
+               .map(
+                 (e) => `<li style="font-size:0.85rem;display:flex;gap:12px">
+                   <span class="mono" style="color:var(--faint);white-space:nowrap">${escapeHtml(new Date(e.created_at).toLocaleDateString())}</span>
+                   <span>${escapeHtml(e.summary)}</span>
+                 </li>`,
+               )
+               .join('')}
+           </ul>`
+        : '<p class="field-hint">Nothing logged yet.</p>'}
+    </section>
+  `;
+}
+
+/* ── Guide ────────────────────────────────────────────────────────────
+   This content existed before but was unreachable: normalizeRoute() mapped
+   `home` to `planner` and render() never called renderHome(), so the app's
+   clearest explanation of itself could not be opened. It is a real route now,
+   and its links point at routes that exist. */
+
+export function renderGuideView({ state }) {
+  const progress = getSetupProgress(state);
+  const stepState = (id) => {
+    const step = progress.steps.find((s) => s.id === id);
+    if (!step) return '';
+    if (step.done) return ' done';
+    return progress.nextStep?.id === id ? ' current' : '';
+  };
+
+  return `
+    <div class="page-head">
+      <p class="eyebrow">How it works</p>
+      <h1 class="page-title">One More Column, in five minutes</h1>
+      <p class="page-lead">
+        The idea: list the work, say who's around, and let the grid tell you where
+        it doesn't fit — without maintaining another workbook by hand.
+      </p>
+    </div>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">The flow</h2>
+      <ol class="guide-steps">
+        <li class="guide-step${stepState('plan')}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">1</span>
+            <h3>Create a plan</h3>
+          </div>
+          <p>A plan is a named date range you're staffing. Give it a name, a start and an end, and pick whether you think in days, weeks, or months.</p>
+          <p><a href="#/plans">Go to Plans →</a></p>
+        </li>
+
+        <li class="guide-step${stepState('work')}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">2</span>
+            <h3>List the work</h3>
+          </div>
+          <p>One row per thing that needs doing. The two fields that matter are <strong>hours</strong> and <strong>due date</strong> — those are what land on the capacity grid.</p>
+          <ul>
+            <li><strong>Type</strong> is just a label, for your own filtering.</li>
+            <li><strong>Details</strong> on each row holds duration, phase, and gates.</li>
+          </ul>
+          <p><a href="#/planner">Go to the Planner →</a></p>
+        </li>
+
+        <li class="guide-step${stepState('team')}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">3</span>
+            <h3>Add your team</h3>
+          </div>
+          <p>Name, role, and hours a week each person can give to planned work. Book time off here too — it comes straight out of their available hours.</p>
+          <p><a href="#/team">Go to Team →</a></p>
+        </li>
+
+        <li class="guide-step${stepState('capacity')}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">4</span>
+            <h3>Check capacity</h3>
+          </div>
+          <p>Every person against every period. The top number in a cell is hours planned; below it is hours left.</p>
+          <ul>
+            <li><span class="badge badge-ok">Green</span> room to spare</li>
+            <li><span class="badge badge-warn">Amber</span> getting tight — no slack for surprises</li>
+            <li><span class="badge badge-bad">Red</span> more work than hours</li>
+          </ul>
+          <p><a href="#/capacity">Go to Capacity →</a></p>
+        </li>
+
+        <li class="guide-step">
+          <div class="guide-step-head">
+            <span class="guide-step-num">5</span>
+            <h3>Watch the alerts</h3>
+          </div>
+          <p>Overloads, dates about to pass, and work stuck behind a gate — collected in one list with a suggestion for each.</p>
+          <p><a href="#/alerts">Go to Alerts →</a></p>
+        </li>
+      </ol>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">What the words mean</h2>
+      <div class="glossary">
+        <div class="glossary-card">
+          <h3>Plan</h3>
+          <p>One named stretch of time you're staffing. Holds its own work, versions, and rules.</p>
+        </div>
+        <div class="glossary-card">
+          <h3>Workspace</h3>
+          <p>A separate pool of people and plans. Most people need exactly one, and you already have it.</p>
+        </div>
+        <div class="glossary-card">
+          <h3>Live plan vs draft</h3>
+          <p>The live plan is what everyone works from. A draft is a scratch copy for trying "what if" without touching it.</p>
+        </div>
+        <div class="glossary-card">
+          <h3>Gate</h3>
+          <p>Something that must happen before a row can start. Open gates push out its can-start date and show up in Alerts.</p>
+        </div>
+        <div class="glossary-card">
+          <h3>Due period vs spread</h3>
+          <p>Whether an item's hours all land in the period it's due, or get spread across the days it runs.</p>
+        </div>
+        <div class="glossary-card">
+          <h3>Where data lives</h3>
+          <p>Everything you type is saved to this app's own database. There's no live sync with Jira or anything else.</p>
+        </div>
+      </div>
     </section>
   `;
 }

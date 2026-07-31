@@ -17,7 +17,8 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 | [ideation/CAPACITY_PLANNER_SPECIFICATION.md](./ideation/CAPACITY_PLANNER_SPECIFICATION.md) | Domain background + flexible platform vision (reference) |
 | [ideation/HOSTED_APP_ARCHITECTURE.md](./ideation/HOSTED_APP_ARCHITECTURE.md) | Neon Auth + path proxy + Postgres cutover |
 | [ideation/config.excel.example.json](./ideation/config.excel.example.json) | External embed/edit URL example |
-| [ideation/templates/blank-styling-template.html](./ideation/templates/blank-styling-template.html) | Mulish design tokens + UI chrome |
+| [templates/blank-styling-template.html](./templates/blank-styling-template.html) | Live design reference — tokens and components |
+| [FOLLOW_UPS.md](./FOLLOW_UPS.md) | Known gaps and the next changes worth making |
 
 ## Sequencing (short)
 
@@ -30,9 +31,32 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 | Done | **C2** | Dependencies + readiness tracker (core) |
 | Done | **C1** | Capacity hardening: bands, assumptions, PTO, effort model |
 | Done | **H3 / C4** | CSV export, in-app alerts, import drift |
+| Done | **UX1** | Guided plan creation, sidebar shell, reachable guide and alerts |
 | Later | **P1** | Additional planning profiles |
 
-See [BUILD_PLAN.md](./BUILD_PLAN.md) for full detail.
+See [BUILD_PLAN.md](./BUILD_PLAN.md) for full detail and [FOLLOW_UPS.md](./FOLLOW_UPS.md) for what UX1 deliberately left open.
+
+## Interface
+
+The app is a hash-routed single page. `engine/app.js` owns state and events;
+everything else is a pure function of state.
+
+| File | Role |
+|---|---|
+| `engine/app.js` | State, data loading, event wiring, `render()` |
+| `engine/views.js` | One function per page body |
+| `engine/wizard.js` | Guided plan creation |
+| `engine/shell.js` | Sidebar chrome, toasts, modals, focus preservation |
+| `engine/setup.js` | Routes, onboarding progress, nav |
+| `engine/app.css` | The only stylesheet |
+
+Routes: `planner`, `capacity`, `alerts`, `team`, `plans`, `rules`, `guide`.
+Older hashes (`home`, `settings`, `preferences`, `dependencies`) still resolve —
+see `LEGACY_ROUTES` in `engine/setup.js`.
+
+**Visual language:** shared with the rest of inaayat.xyz — cream page, Fraunces
+display type, DM Mono labels, teal sidebar matching the project's tile on the
+landing grid. See [`templates/blank-styling-template.html`](./templates/blank-styling-template.html).
 
 ## Local development
 

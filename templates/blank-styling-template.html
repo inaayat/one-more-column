@@ -3,774 +3,185 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Planning — Blank Styling Template</title>
-  <link href="https://fonts.googleapis.com/css2?family=Mulish:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>One More Column — design reference</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,400;0,500;1,400&family=Fraunces:ital,wght@0,500;0,600;0,700;1,500&display=swap">
+
+  <!--
+    ═══════════════════════════════════════════════════════════════════════
+    Design reference for One More Column.
+
+    This page links ../engine/app.css rather than restating it. The previous
+    version kept its own copy of every token and component rule, which drifted
+    out of sync with the app almost immediately and ended up prescribing a
+    visual language the product no longer used. There is one stylesheet now;
+    this file only demonstrates what is in it.
+
+    House rules:
+      1. One More Column shares the inaayat.xyz family look — cream page,
+         Fraunces display type, DM Mono for labels and figures.
+      2. The sidebar is teal because the project's tile on the landing grid is
+         `card-teal`. Sibling apps do the same (amc-a-lister is burgundy), so
+         each app reads as an extension of the tile you clicked.
+      3. Prefer the CSS variables in :root over hard-coded hex.
+      4. Colour is never the only signal — pair every band with a number or
+         label, since capacity red/amber/green has to survive colour blindness
+         and greyscale printing.
+    ═══════════════════════════════════════════════════════════════════════
+  -->
+
+  <link rel="stylesheet" href="../engine/app.css">
   <style>
-    /* ═══════════════════════════════════════════════════════════════════════════
-       Planning Design System — Blank Styling Template
-       Extracted from the capacity planner UI for consistent maintenance.
-
-       Usage:
-         1. Copy this file (or the :root tokens + component CSS) into new pages.
-         2. Prefer CSS variables below over hard-coded hex in new features.
-         3. Keep Mulish as the product font; do not switch to Inter/system-only.
-         4. Avoid new purple-gradient / cream-serif aesthetics; stay within tokens.
-       ═══════════════════════════════════════════════════════════════════════════ */
-
-    :root {
-      /* Surfaces */
-      --color-bg:            #f7f9fc;
-      --color-surface:       #ffffff;
-      --color-surface-muted: #f8fafc;
-      --color-surface-soft:  #f9fafb;
-      --color-border:        #e8ecf0;
-      --color-border-strong: #e2e8f0;
-      --color-border-input:  #e2e8f0;
-
-      /* Text */
-      --color-text:          #2d3748;
-      --color-text-strong:   #1a202c;
-      --color-text-secondary:#64748b;
-      --color-text-muted:    #9ca3af;
-      --color-text-subtle:   #94a3b8;
-      --color-text-label:    #718096;
-
-      /* Brand / accent (teal–mint, not purple) */
-      --color-accent:        #0f766e;
-      --color-accent-hover:  #115e59;
-      --color-accent-soft:   #edfaf6;
-      --color-accent-mint:   #1bdbad;
-      --color-accent-mint-h: #0fc49a;
-      --color-current-week:  #0d9488;
-      --color-current-week-b:#0b857a;
-
-      /* Navigation */
-      --color-nav-active-bg: #1e293b;
-      --color-nav-active-fg: #ffffff;
-      --color-tab-hover-bg:  #f1f5f9;
-
-      /* Actions */
-      --color-btn-primary:   #1bdbad;
-      --color-btn-primary-h: #0fc49a;
-      --color-btn-secondary: #6366f1;
-      --color-btn-secondary-h:#4f46e5;
-      --color-btn-on-solid:  #ffffff;
-
-      /* Capacity cells */
-      --color-cell-empty:    #fafafa;
-      --color-cell-active:   #f0fdf4;
-      --color-cell-overload: #fef2f2;
-      --color-total-ok:      #16a34a;
-      --color-total-over:    #dc2626;
-      --color-row-hover:     #f8fffe;
-
-      /* Table chrome */
-      --color-th-bg:         #2d3748;
-      --color-th-border:     #1a202c;
-      --color-th-divider:    #3a4a5c;
-      --color-wp-header:     #1e3a5f;
-      --color-pbc-header:    #0e7490;
-
-      /* Role / team badges */
-      --color-badge-qa-bg:   #dbeafe;
-      --color-badge-qa-fg:   #1d4ed8;
-      --color-badge-rev-bg:  #ede9fe;
-      --color-badge-rev-fg:  #6d28d9;
-      --color-grp-bp-bg:     #dbeafe;
-      --color-grp-bp-fg:     #1d4ed8;
-      --color-grp-bp-bd:     #93c5fd;
-      --color-grp-it-bg:     #dcfce7;
-      --color-grp-it-fg:     #166534;
-      --color-grp-it-bd:     #86efac;
-      --color-grp-a3-bg:     #ede9fe;
-      --color-grp-a3-fg:     #6d28d9;
-      --color-grp-a3-bd:     #c4b5fd;
-      --color-grp-off-bg:    #f1f5f9;
-      --color-grp-off-fg:    #94a3b8;
-      --color-grp-off-bd:    #cbd5e1;
-
-      /* Status banners */
-      --color-ok-banner-bg:  #f7faf9;
-      --color-ok-banner-fg:  #6b7280;
-      --color-ok-strong:     #059669;
-      --color-ok-icon:       #10b981;
-      --color-warn-banner-bg:#fffbeb;
-      --color-warn-banner-fg:#78350f;
-      --color-warn-border:   #f59e0b;
-      --color-warn-strong:   #b45309;
-      --color-beta-bg:       #fef3c7;
-      --color-beta-fg:       #92400e;
-
-      /* Excel-export style bands (optional three-band mode) */
-      --color-band-green:    #d9f0dd;
-      --color-band-yellow:   #fff9c4;
-      --color-band-yellow-fg:#92400e;
-      --color-band-red:      #fddede;
-
-      /* Layout */
-      --font-sans:           'Mulish', -apple-system, BlinkMacSystemFont, sans-serif;
-      --radius-sm:           4px;
-      --radius-md:           7px;
-      --radius-lg:           8px;
-      --radius-xl:           10px;
-      --radius-pill:         999px;
-      --shadow-header:       0 1px 3px rgba(0,0,0,.04);
-      --shadow-panel:        0 1px 3px rgba(0,0,0,.06);
-      --shadow-frozen:       2px 0 6px rgba(0,0,0,.07);
-      --header-height:       58px;
-      --frozen-col-width:    240px;
-      --grid-height:         min(72vh, 720px);
-      --content-pad-x:       28px;
-      --focus-ring:          0 0 0 3px rgba(27, 219, 173, 0.18);
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: var(--font-sans);
-      background: var(--color-bg);
-      color: var(--color-text);
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-      line-height: 1.45;
-    }
-
-    /* ── Header ── */
-    .app-header {
-      background: var(--color-surface);
-      border-bottom: 1px solid var(--color-border);
-      position: sticky;
-      top: 0;
-      z-index: 100;
-      box-shadow: var(--shadow-header);
-    }
-    .header-inner {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 20px;
-      padding: 0 24px;
-      min-height: var(--header-height);
-    }
-    .header-brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-    .brand-mark {
-      width: 34px; height: 34px; border-radius: 6px;
-      background: linear-gradient(145deg, var(--color-accent-mint), var(--color-accent));
-      display: grid; place-items: center;
-      color: #fff; font-weight: 800; font-size: 12px;
-    }
-    .app-name { font-size: 15px; font-weight: 800; color: var(--color-text-strong); line-height: 1.2; }
-    .app-sub  { font-size: 10px; color: var(--color-text-muted); margin-top: 1px; }
-    .header-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .header-sync { font-size: 10px; color: var(--color-text-muted); line-height: 1.35; text-align: right; }
-    .header-sync strong {
-      display: block; color: var(--color-text-label); font-weight: 600; font-size: 9px;
-      text-transform: uppercase; letter-spacing: .5px;
-    }
-
-    /* ── Banners ── */
-    .token-banner {
-      display: flex; align-items: flex-start; gap: 10px;
-      padding: 8px 28px; font-size: 12px; line-height: 1.5; border-bottom: 1px solid;
-    }
-    .token-banner.valid {
-      background: var(--color-ok-banner-bg); color: var(--color-ok-banner-fg);
-      border-bottom-color: #e5e7eb;
-    }
-    .token-banner.valid strong { color: var(--color-ok-strong); font-weight: 600; }
-    .token-banner.expired {
-      background: var(--color-warn-banner-bg); color: var(--color-warn-banner-fg);
-      border-bottom: 1.5px solid var(--color-warn-border);
-    }
-    .token-banner.expired strong { color: var(--color-warn-strong); font-weight: 700; display: block; margin-bottom: 2px; }
-
-    /* ── Buttons ── */
-    .btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 8px 16px; border-radius: var(--radius-md);
-      font-size: 13px; font-weight: 600; cursor: pointer;
-      border: none; white-space: nowrap; text-decoration: none;
-      font-family: var(--font-sans);
-      transition: opacity .15s, background .15s, border-color .15s, color .15s, transform .1s;
-    }
-    .btn:hover { opacity: .87; }
-    .btn:active { transform: scale(.97); }
-    .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-    .btn-refresh-solid { background: var(--color-btn-primary); color: var(--color-btn-on-solid); font-weight: 700; }
-    .btn-refresh-solid:hover { background: var(--color-btn-primary-h); opacity: 1; }
-    .btn-export-solid  { background: var(--color-btn-secondary); color: var(--color-btn-on-solid); font-weight: 700; }
-    .btn-export-solid:hover  { background: var(--color-btn-secondary-h); opacity: 1; }
-    .btn-ghost {
-      background: var(--color-surface); color: var(--color-text-secondary);
-      border: 1px solid var(--color-border-strong);
-    }
-    .btn-ghost:hover { background: var(--color-surface-muted); color: #334155; opacity: 1; }
-    .btn-sm { padding: 7px 12px; font-size: 12px; }
-    .btn-cancel {
-      background: var(--color-grp-off-bg); color: #475569; border: 1px solid var(--color-grp-off-bd);
-    }
-    .btn-send {
-      background: var(--color-nav-active-bg); color: #fff;
-    }
-
-    /* ── Layout shell ── */
-    .main { flex: 1; display: flex; flex-direction: column; min-height: 0; width: 100%; }
-    .content {
-      padding: 18px var(--content-pad-x) 22px;
-      flex: 1; min-height: 0; overflow-y: auto;
-      display: flex; flex-direction: column;
-    }
-
-    /* ── Section tabs (top-level) ── */
-    .section-nav { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-shrink: 0; }
-    .section-tab {
-      display: inline-flex; align-items: center; padding: 6px 14px;
-      border: 1px solid var(--color-border-strong); border-radius: var(--radius-lg);
-      background: var(--color-surface); color: var(--color-text-secondary);
-      font-size: 12px; font-weight: 700; cursor: pointer; font-family: var(--font-sans);
-      transition: background .12s, color .12s, border-color .12s;
-    }
-    .section-tab:hover { background: var(--color-surface-muted); color: #334155; border-color: #cbd5e1; }
-    .section-tab.active {
-      background: var(--color-nav-active-bg); color: var(--color-nav-active-fg);
-      border-color: var(--color-nav-active-bg); cursor: default;
-    }
-    .section-panel { display: none; flex: 1; min-height: 0; flex-direction: column; gap: 12px; }
-    .section-panel.active { display: flex; }
-
-    /* ── View tabs (sub-nav) ── */
-    .view-nav {
-      position: sticky; top: 0; z-index: 40; background: var(--color-bg);
-      padding: 0 0 10px; margin-bottom: 2px; flex-shrink: 0;
-    }
-    .view-tabs {
-      display: flex; align-items: center; gap: 4px; overflow-x: auto; flex-wrap: nowrap;
-      padding: 5px; background: var(--color-surface); border: 1px solid var(--color-border);
-      border-radius: var(--radius-xl); box-shadow: var(--shadow-header); scrollbar-width: thin;
-    }
-    .view-tab {
-      display: inline-flex; align-items: center; padding: 7px 14px; border: none;
-      background: transparent; color: var(--color-text-secondary);
-      font-size: 13px; font-weight: 600; cursor: pointer; border-radius: var(--radius-md);
-      transition: background .12s, color .12s; white-space: nowrap; font-family: var(--font-sans);
-    }
-    .view-tab:hover { background: var(--color-tab-hover-bg); color: #1e293b; }
-    .view-tab.active { background: var(--color-accent-soft); color: var(--color-accent); font-weight: 700; }
-    .view-desc { font-size: 12px; color: var(--color-text-subtle); margin: 0 0 10px; min-height: 18px; }
-
-    /* ── Meta / stats ── */
-    .capacity-meta-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
-    }
-    .stats { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-    .stat {
-      display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 9px;
-      background: var(--color-surface); border-radius: 6px; border: 1px solid #eef2f6;
-    }
-    .stat .num { font-size: 13px; font-weight: 700; color: #374151; }
-    .stat .lbl { font-size: 11px; color: var(--color-text-muted); }
-    .legend { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--color-text-muted); }
-    .swatch { width: 10px; height: 10px; border-radius: 3px; }
-
-    /* ── Toggle switch ── */
-    .spread-switch {
-      display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
-      user-select: none; font-size: 11px; color: var(--color-text-secondary);
-    }
-    .spread-switch-text { font-weight: 600; }
-    .beta-badge {
-      display: inline-block; padding: 1px 6px; border-radius: var(--radius-pill);
-      background: var(--color-beta-bg); color: var(--color-beta-fg);
-      font-size: 9px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
-    }
-    .spread-switch-ui { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
-    .spread-switch-ui input {
-      position: absolute; inset: 0; width: 100%; height: 100%;
-      opacity: 0; cursor: pointer; margin: 0; z-index: 1;
-    }
-    .spread-switch-track {
-      position: absolute; inset: 0; border-radius: var(--radius-pill);
-      background: #cbd5e1; transition: background .18s ease;
-    }
-    .spread-switch-track::after {
-      content: ''; position: absolute; top: 2px; left: 2px;
-      width: 14px; height: 14px; border-radius: 50%; background: #fff;
-      box-shadow: 0 1px 3px rgba(0,0,0,.18); transition: transform .18s ease;
-    }
-    .spread-switch-ui input:checked + .spread-switch-track { background: var(--color-accent); }
-    .spread-switch-ui input:checked + .spread-switch-track::after { transform: translateX(16px); }
-    .spread-switch-ui input:focus-visible + .spread-switch-track {
-      box-shadow: 0 0 0 3px rgba(15,118,110,.22);
-    }
-
-    /* ── Split capacity grid ── */
-    .table-outer {
-      border-radius: var(--radius-xl); box-shadow: var(--shadow-panel);
-      border: 1px solid var(--color-border); margin-bottom: 8px;
-      display: flex; flex-direction: row;
-      height: var(--grid-height); min-height: 280px;
-      background: var(--color-surface); overflow: hidden; width: 100%;
-    }
-    .table-frozen {
-      width: var(--frozen-col-width); min-width: var(--frozen-col-width);
-      overflow-y: auto; border-right: 2px solid var(--color-border-strong);
-      box-shadow: var(--shadow-frozen); z-index: 2; background: var(--color-surface);
-    }
-    .table-wrap {
-      overflow: auto; flex: 1; min-width: 0; min-height: 0;
-      -webkit-overflow-scrolling: touch;
-    }
-    .table-frozen table,
-    .capacity-scroll-table {
-      border-collapse: separate; border-spacing: 0; background: var(--color-surface);
-    }
-    .table-frozen table { width: 100%; }
-    .capacity-scroll-table { width: max-content; min-width: 100%; }
-    .capacity-scroll-table th,
-    .capacity-scroll-table td { min-width: 92px; text-align: center; }
-
-    thead th {
-      background: var(--color-th-bg); color: #fff; padding: 8px 12px;
-      font-size: 11px; white-space: nowrap; font-weight: 700; letter-spacing: .3px;
-      border-bottom: 2px solid var(--color-th-border); border-right: 1px solid var(--color-th-divider);
-      position: sticky; top: 0; z-index: 3;
-    }
-    .table-frozen thead th { text-align: left; min-width: 220px; border-right: none; }
-    tbody tr:hover td { background: var(--color-row-hover); }
-    tbody tr:hover td.person { background: var(--color-accent-soft); }
-    td {
-      padding: 4px 10px; border-bottom: 1px solid #f0f0f0; border-right: 1px solid #f5f5f5;
-      vertical-align: middle; background: var(--color-surface); min-height: 54px;
-    }
-    td.person {
-      font-weight: 600; font-size: 13px; text-align: left;
-      background: var(--color-surface-soft); border-right: none; white-space: nowrap;
-    }
-    td.empty { background: var(--color-cell-empty); }
-    td.active { background: var(--color-cell-active); }
-    td.overloaded { background: var(--color-cell-overload); }
-    .total { font-size: 12px; font-weight: 700; line-height: 1.2; }
-    td.active .total { color: var(--color-total-ok); }
-    td.overloaded .total { color: var(--color-total-over); }
-    thead th.current-week-col {
-      background: var(--color-current-week) !important;
-      border-right-color: var(--color-current-week-b) !important;
-    }
-    td.current-week-col { background: var(--color-accent-soft) !important; }
-
-    .role-badge {
-      display: block; border-radius: 3px; padding: 1px 4px;
-      font-size: 9px; font-weight: 600; margin-top: 1px; line-height: 1.15;
-    }
-    .role-badge.qa  { background: var(--color-badge-qa-bg); color: var(--color-badge-qa-fg); }
-    .role-badge.rev { background: var(--color-badge-rev-bg); color: var(--color-badge-rev-fg); }
-
-    .group-select {
-      font-size: 11px; font-weight: 700; cursor: pointer;
-      border-radius: 20px; padding: 3px 8px; border: 1.5px solid; font-family: var(--font-sans);
-    }
-    .grp-bp { background: var(--color-grp-bp-bg); color: var(--color-grp-bp-fg); border-color: var(--color-grp-bp-bd); }
-    .grp-it { background: var(--color-grp-it-bg); color: var(--color-grp-it-fg); border-color: var(--color-grp-it-bd); }
-    .grp-a3 { background: var(--color-grp-a3-bg); color: var(--color-grp-a3-fg); border-color: var(--color-grp-a3-bd); }
-    .grp-deactive { background: var(--color-grp-off-bg); color: var(--color-grp-off-fg); border-color: var(--color-grp-off-bd); }
-
-    /* ── Filter bar / forms ── */
-    .filter-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    .filter-bar input, .filter-select, .modal-text-input, .form-input {
-      padding: 8px 14px; border: 1.5px solid var(--color-border-input); border-radius: var(--radius-lg);
-      font-size: 13px; outline: none; background: var(--color-surface); font-family: var(--font-sans);
-      color: var(--color-text); transition: border-color .15s, box-shadow .15s;
-    }
-    .filter-bar input:focus, .filter-select:focus, .modal-text-input:focus, .form-input:focus {
-      border-color: var(--color-accent-mint); box-shadow: 0 0 0 3px rgba(27,219,173,.1);
-    }
-    .filter-label { font-size: 13px; font-weight: 600; color: #4a5568; }
-    .filter-count { font-size: 12px; color: var(--color-text-muted); }
-
-    /* ── Panels / cards (use sparingly — prefer open layouts) ── */
-    .panel {
-      background: var(--color-surface); border: 1px solid var(--color-border);
-      border-radius: var(--radius-xl); padding: 16px; box-shadow: var(--shadow-panel);
-    }
-    .panel h3 { font-size: 14px; font-weight: 800; color: var(--color-text-strong); margin-bottom: 8px; }
-    .panel p, .panel .muted { font-size: 13px; color: var(--color-text-secondary); line-height: 1.55; }
-    .group-heading {
-      font-size: 15px; font-weight: 800; color: var(--color-text-strong);
-      margin: 8px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--color-accent-mint);
-    }
-    .label-badge {
-      display: inline-block; background: var(--color-grp-off-bg); color: #475569;
-      border-radius: var(--radius-sm); padding: 1px 5px; margin: 1px 2px 1px 0;
-      font-size: 10px; font-weight: 600;
-    }
-
-    /* ── Data table (Jira Items style) ── */
-    .data-table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
-    .data-table thead th {
-      position: static; text-align: left; font-size: 11px; padding: 9px 10px;
-    }
-    .data-table td {
-      font-size: 12px; padding: 7px 10px; text-align: left; vertical-align: top;
-      border-bottom: 1px solid #f0f0f0;
-    }
-    .data-table tbody tr:nth-child(even) td { background: var(--color-cell-empty); }
-    .data-table tbody tr:hover td { background: #f0fdf9; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 600; }
-
-    /* ── Modal ── */
-    .modal-backdrop {
-      display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
-      z-index: 1000; align-items: center; justify-content: center; padding: 24px;
-    }
-    .modal-backdrop.open { display: flex; }
-    .modal {
-      background: var(--color-surface); border-radius: 12px; padding: 20px 22px;
-      width: min(480px, 100%); box-shadow: 0 20px 50px rgba(0,0,0,.25);
-    }
-    .modal h2 { font-size: 16px; font-weight: 800; color: var(--color-text-strong); margin-bottom: 8px; }
-    .modal p { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 12px; line-height: 1.55; }
-    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-    .modal label.filter-label { display: block; margin: 10px 0 4px; }
-    .modal-text-input { width: 100%; }
-
-    /* ── Auth chrome (hosted-app additions; not in static Pages build) ── */
-    .auth-chip {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 4px 10px 4px 4px; border-radius: var(--radius-pill);
-      background: var(--color-surface-muted); border: 1px solid var(--color-border);
-      font-size: 12px; font-weight: 600; color: var(--color-text-secondary);
-    }
-    .auth-avatar {
-      width: 24px; height: 24px; border-radius: 50%;
-      background: var(--color-accent); color: #fff;
-      display: grid; place-items: center; font-size: 10px; font-weight: 800;
-    }
-    .role-pill {
-      font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: var(--radius-pill);
-      background: var(--color-accent-soft); color: var(--color-accent);
-    }
-
-    /* ── Template gallery helpers ── */
-    .template-note {
-      margin: 0 0 14px; padding: 12px 14px; border-radius: var(--radius-lg);
-      background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 13px;
-    }
-    .swatch-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 10px; margin-bottom: 18px;
-    }
-    .swatch-card {
-      background: var(--color-surface); border: 1px solid var(--color-border);
-      border-radius: var(--radius-lg); overflow: hidden; font-size: 11px;
-    }
-    .swatch-card .chip { height: 40px; }
-    .swatch-card .meta { padding: 8px 10px; color: var(--color-text-secondary); }
-    .swatch-card code { font-size: 10px; color: var(--color-text-muted); }
-    .component-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
-    .footer { margin-top: 24px; font-size: 11px; color: #bbb; text-align: center; padding-bottom: 8px; }
-
-    @media (max-width: 960px) {
-      .content { padding: 14px 16px 20px; }
-      .header-inner { padding: 0 14px; gap: 12px; }
-      .table-frozen { width: 180px; min-width: 180px; }
-    }
+    /* Page-local scaffolding for the gallery itself. */
+    .gallery { padding: 32px; display: flex; flex-direction: column; gap: 24px; max-width: 1100px; margin: 0 auto; }
+    .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .swatch-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+    .swatch-card .chip { height: 44px; }
+    .swatch-card .meta { padding: 8px 10px; font-size: 0.72rem; color: var(--muted); }
+    .swatch-card code { font-family: var(--font-mono); font-size: 0.66rem; display: block; }
+    .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
   </style>
 </head>
 <body>
-  <header class="app-header">
-    <div class="header-inner">
-      <div class="header-brand">
-        <div class="brand-mark" aria-hidden="true">P</div>
-        <div>
-          <div class="app-name">Planning</div>
-          <div class="app-sub">Blank styling template</div>
-        </div>
-      </div>
-      <div class="header-actions">
-        <div class="header-sync">
-          <strong>Last synced</strong>
-          Placeholder timestamp
-        </div>
-        <!-- Hosted-app pattern: replace localStorage identity with server session -->
-        <div class="auth-chip" title="Hosted-app auth chip example">
-          <span class="auth-avatar">JD</span>
-          <span>Jane Doe</span>
-          <span class="role-pill">Admin</span>
-        </div>
-        <button type="button" class="btn btn-refresh-solid btn-sm">Sync</button>
-        <button type="button" class="btn btn-export-solid btn-sm">Export</button>
-      </div>
-    </div>
-  </header>
+  <div class="gallery">
 
-  <div class="token-banner valid">
-    <span aria-hidden="true">✓</span>
-    <div><strong>Design system ready.</strong> Use this page as the visual reference when adding screens.</div>
-  </div>
-
-  <main class="main">
-    <div class="content">
-      <p class="template-note">
-        This is an empty shell with the planning product visual language (Mulish, teal accents,
-        split grids, section/view tabs). Wire real data and auth in the hosted app — do not ship
-        this file as a product page.
+    <div class="page-head">
+      <p class="eyebrow">Design reference</p>
+      <h1 class="page-title">One More Column</h1>
+      <p class="page-lead">
+        Every class below comes from <code class="mono">engine/app.css</code>. Copy the markup, not the styles.
       </p>
-
-      <nav class="section-nav" aria-label="Primary">
-        <button type="button" class="section-tab active" data-section="gallery">Design gallery</button>
-        <button type="button" class="section-tab" data-section="layout">Layout shell</button>
-        <button type="button" class="section-tab" data-section="forms">Forms &amp; modal</button>
-      </nav>
-
-      <!-- ── Gallery ── -->
-      <section id="gallery" class="section-panel active">
-        <h2 class="group-heading">Color tokens</h2>
-        <div class="swatch-grid" id="token-swatches"></div>
-
-        <h2 class="group-heading">Buttons &amp; chips</h2>
-        <div class="component-row">
-          <button type="button" class="btn btn-refresh-solid">Primary / Sync</button>
-          <button type="button" class="btn btn-export-solid">Secondary / Export</button>
-          <button type="button" class="btn btn-ghost">Ghost</button>
-          <button type="button" class="btn btn-cancel btn-sm">Cancel</button>
-          <button type="button" class="btn btn-send btn-sm">Confirm</button>
-          <span class="beta-badge">Beta</span>
-          <span class="label-badge">Label</span>
-          <span class="role-badge qa" style="display:inline-block">Primary 8.0h</span>
-          <span class="role-badge rev" style="display:inline-block">Secondary 2.8h</span>
-        </div>
-        <div class="component-row">
-          <select class="group-select grp-bp"><option>Team A</option></select>
-          <select class="group-select grp-it"><option>Team B</option></select>
-          <select class="group-select grp-a3"><option>Team C</option></select>
-          <select class="group-select grp-deactive" disabled><option>Inactive</option></select>
-          <label class="spread-switch">
-            <span class="spread-switch-ui">
-              <input type="checkbox" checked>
-              <span class="spread-switch-track"></span>
-            </span>
-            <span class="spread-switch-text">Toggle example</span>
-          </label>
-        </div>
-
-        <h2 class="group-heading">Capacity cell states</h2>
-        <div class="legend" style="margin-bottom:10px">
-          <div class="legend-item"><span class="swatch" style="background:var(--color-cell-empty)"></span> Empty</div>
-          <div class="legend-item"><span class="swatch" style="background:var(--color-cell-active)"></span> Active (≤ cap)</div>
-          <div class="legend-item"><span class="swatch" style="background:var(--color-cell-overload)"></span> Overloaded</div>
-          <div class="legend-item"><span class="swatch" style="background:var(--color-current-week)"></span> Current week</div>
-        </div>
-      </section>
-
-      <!-- ── Layout shell ── -->
-      <section id="layout" class="section-panel">
-        <div class="view-nav">
-          <div class="view-tabs" role="tablist">
-            <button type="button" class="view-tab active">Overall</button>
-            <button type="button" class="view-tab">Team A</button>
-            <button type="button" class="view-tab">Team B</button>
-            <button type="button" class="view-tab">Plan Builder</button>
-          </div>
-        </div>
-        <p class="view-desc">Sub-view description goes here. One sentence explaining the active tab.</p>
-
-        <div class="capacity-meta-row">
-          <div class="stats">
-            <div class="stat"><span class="num">12</span><span class="lbl">people</span></div>
-            <div class="stat"><span class="num">3</span><span class="lbl">overloaded weeks</span></div>
-            <div class="stat"><span class="num">32h</span><span class="lbl">weekly cap</span></div>
-          </div>
-          <div class="legend">
-            <div class="legend-item"><span class="swatch" style="background:var(--color-cell-active)"></span> OK</div>
-            <div class="legend-item"><span class="swatch" style="background:var(--color-cell-overload)"></span> Over</div>
-          </div>
-        </div>
-
-        <div class="table-outer" aria-label="Example capacity grid">
-          <div class="table-frozen">
-            <table>
-              <thead><tr><th>Person</th></tr></thead>
-              <tbody>
-                <tr>
-                  <td class="person">
-                    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-                      <span>Alex Example</span>
-                      <select class="group-select grp-bp"><option>Team A</option></select>
-                    </div>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="person">
-                    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
-                      <span>Jordan Sample</span>
-                      <select class="group-select grp-it"><option>Team B</option></select>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div class="table-wrap">
-            <table class="capacity-scroll-table">
-              <thead>
-                <tr>
-                  <th>Jul 20</th>
-                  <th class="current-week-col">Jul 27</th>
-                  <th>Aug 3</th>
-                  <th>Aug 10</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td class="empty"></td>
-                  <td class="active current-week-col">
-                    <div class="total">18.0</div>
-                    <span class="role-badge qa">P 14.0</span>
-                    <span class="role-badge rev">S 4.0</span>
-                  </td>
-                  <td class="active">
-                    <div class="total">24.5</div>
-                    <span class="role-badge qa">P 20.0</span>
-                    <span class="role-badge rev">S 4.5</span>
-                  </td>
-                  <td class="overloaded">
-                    <div class="total">36.2</div>
-                    <span class="role-badge qa">P 30.0</span>
-                    <span class="role-badge rev">S 6.2</span>
-                  </td>
-                </tr>
-                <tr>
-                  <td class="active"><div class="total">8.0</div><span class="role-badge qa">P 8.0</span></td>
-                  <td class="empty current-week-col"></td>
-                  <td class="active"><div class="total">12.0</div><span class="role-badge rev">S 12.0</span></td>
-                  <td class="empty"></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="panel">
-          <h3>Panel / callout pattern</h3>
-          <p class="muted">Use panels for sidebars and help text. Prefer open layouts for primary planning grids — avoid card-heavy dashboards.</p>
-        </div>
-      </section>
-
-      <!-- ── Forms ── -->
-      <section id="forms" class="section-panel">
-        <div class="filter-bar">
-          <label class="filter-label" for="q">Search</label>
-          <input id="q" type="search" placeholder="Filter by key, person, summary…">
-          <select class="filter-select">
-            <option>All statuses</option>
-            <option>In Progress</option>
-          </select>
-          <span class="filter-count">42 shown</span>
-          <button type="button" class="btn btn-ghost btn-sm" id="open-modal">Open modal</button>
-        </div>
-
-        <div class="panel" style="overflow:auto">
-          <table class="data-table">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Summary</th>
-                <th>Owner</th>
-                <th>Hours</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td class="mono">ITEM-0001</td>
-                <td>Example work item row</td>
-                <td>Alex Example</td>
-                <td>8.0</td>
-              </tr>
-              <tr>
-                <td class="mono">ITEM-0002</td>
-                <td>Another placeholder item</td>
-                <td>Jordan Sample</td>
-                <td>6.0</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <p class="footer">Blank styling template · keep visual tokens in sync with the product frontend</p>
     </div>
-  </main>
 
-  <div class="modal-backdrop" id="demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-modal-title">
-    <div class="modal">
-      <h2 id="demo-modal-title">Example modal</h2>
-      <p>Modals use a dimmed backdrop and a single primary action. Keep copy short.</p>
-      <label class="filter-label" for="modal-field">Field</label>
-      <input id="modal-field" class="modal-text-input" type="text" placeholder="Placeholder…">
-      <div class="modal-actions">
-        <button type="button" class="btn btn-cancel btn-sm" id="close-modal">Close</button>
-        <button type="button" class="btn btn-send btn-sm">Save</button>
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Colour tokens</h2>
+      <div class="swatch-grid" id="token-swatches"></div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Type</h2>
+      <p class="page-title">Fraunces — page titles</p>
+      <p class="section-title">Fraunces — section titles</p>
+      <p class="page-lead">Body copy is the system sans stack, set at 15px with a 1.45 line height.</p>
+      <p class="field-label">DM Mono — field labels, uppercased</p>
+      <p class="mono">DM Mono — figures: 1234.5 hours</p>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Buttons</h2>
+      <div class="row">
+        <button class="btn btn-primary">Primary</button>
+        <button class="btn btn-warm">Warm</button>
+        <button class="btn btn-ghost">Ghost</button>
+        <button class="btn btn-quiet">Quiet</button>
+        <button class="btn btn-danger">Danger</button>
+        <button class="btn btn-primary" disabled>Disabled</button>
+        <button class="btn btn-ghost btn-sm">Small</button>
+        <button class="btn btn-primary btn-lg">Large</button>
       </div>
-    </div>
+      <div class="row" style="margin-top:12px">
+        <div class="toggle-group" role="group" aria-label="Example toggle">
+          <button class="toggle-btn active">Active</button>
+          <button class="toggle-btn">Inactive</button>
+        </div>
+        <div class="pill-tabs">
+          <button class="pill-tab active">Everyone</button>
+          <button class="pill-tab">Analyst</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Forms</h2>
+      <div class="form-grid form-grid-2">
+        <label class="field">
+          <span class="field-label">Normal</span>
+          <input class="input" placeholder="Placeholder">
+          <span class="field-hint">Hint text sits under the control.</span>
+        </label>
+        <label class="field">
+          <span class="field-label">Invalid</span>
+          <input class="input invalid" value="Bad value">
+          <span class="field-error"><span aria-hidden="true">!</span>Say what is wrong and how to fix it.</span>
+        </label>
+      </div>
+      <div class="choice-row" style="margin-top:14px">
+        <label class="choice selected"><span class="choice-name">Selected</span><span class="choice-desc">Radio cards beat a select when the choice changes the shape of the page.</span></label>
+        <label class="choice"><span class="choice-name">Unselected</span><span class="choice-desc">Description explains the consequence.</span></label>
+        <label class="choice"><span class="choice-name">Third</span><span class="choice-desc">Three is about the limit.</span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Status</h2>
+      <div class="row" style="margin-bottom:14px">
+        <span class="badge">Neutral</span>
+        <span class="badge badge-ok">Good</span>
+        <span class="badge badge-warn">Tight</span>
+        <span class="badge badge-bad">Over</span>
+        <span class="badge badge-live">Live</span>
+        <span class="dirty-flag">Unsaved changes</span>
+      </div>
+      <div class="notice notice-info" style="margin-bottom:8px">Info — explains a redirect or a state.</div>
+      <div class="notice notice-warn" style="margin-bottom:8px">Warning — something needs attention but nothing is broken.</div>
+      <div class="notice notice-error">Error — the action failed.</div>
+      <div class="legend" style="margin-top:14px">
+        <span class="legend-item"><span class="swatch ok"></span> Room to spare</span>
+        <span class="legend-item"><span class="swatch tight"></span> Getting tight</span>
+        <span class="legend-item"><span class="swatch over"></span> Overloaded</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Capacity cells</h2>
+      <div class="table-scroll">
+        <table class="table cap-table">
+          <thead><tr><th class="cap-person">Person</th><th class="cap-period">Jan 5</th><th class="cap-period">Jan 12</th><th class="cap-period">Jan 19</th></tr></thead>
+          <tbody>
+            <tr>
+              <th class="cap-person" scope="row">Alex Rivera<span class="cap-team">Analyst</span></th>
+              <td class="cap-cell cap-ok"><span class="cap-load">8</span><span class="cap-rem">24h left</span></td>
+              <td class="cap-cell cap-tight"><span class="cap-load">26</span><span class="cap-rem">6h left</span></td>
+              <td class="cap-cell cap-over"><span class="cap-load">40</span><span class="cap-rem">-8h left</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:14px">Empty state</h2>
+      <div class="empty">
+        <span class="empty-title">Nothing here yet</span>
+        <p class="empty-body">Say what is missing, why it matters, and give one button that fixes it.</p>
+        <button class="btn btn-primary">The one obvious action</button>
+      </div>
+    </section>
+
+    <p class="field-hint" style="text-align:center">
+      Styles live in engine/app.css. Change them there, not here.
+    </p>
   </div>
 
   <script>
-    // Section switching
-    document.querySelectorAll('.section-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.section-panel').forEach(p => p.classList.remove('active'));
-        tab.classList.add('active');
-        document.getElementById(tab.dataset.section).classList.add('active');
-      });
-    });
-
-    // View tab demo (visual only)
-    document.querySelectorAll('.view-tab').forEach(tab => {
-      tab.addEventListener('click', () => {
-        tab.parentElement.querySelectorAll('.view-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-      });
-    });
-
-    // Modal
-    const modal = document.getElementById('demo-modal');
-    document.getElementById('open-modal').addEventListener('click', () => modal.classList.add('open'));
-    document.getElementById('close-modal').addEventListener('click', () => modal.classList.remove('open'));
-    modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('open'); });
-
-    // Token gallery
     const tokens = [
-      ['--color-bg', 'Page bg'],
-      ['--color-surface', 'Surface'],
-      ['--color-text', 'Text'],
-      ['--color-accent', 'Accent'],
-      ['--color-accent-soft', 'Accent soft'],
-      ['--color-accent-mint', 'Mint CTA'],
-      ['--color-btn-secondary', 'Indigo CTA'],
-      ['--color-nav-active-bg', 'Nav active'],
-      ['--color-cell-active', 'Cell OK'],
-      ['--color-cell-overload', 'Cell over'],
-      ['--color-current-week', 'Current week'],
-      ['--color-th-bg', 'Table header'],
-      ['--color-badge-qa-bg', 'Primary badge'],
-      ['--color-badge-rev-bg', 'Secondary badge'],
-      ['--color-wp-header', 'Column set A'],
-      ['--color-pbc-header', 'Column set B'],
+      ['--cream', 'Page'], ['--panel', 'Panel'], ['--panel-2', 'Panel muted'],
+      ['--teal', 'Sidebar / primary'], ['--gold', 'Warm accent'], ['--red', 'Danger'],
+      ['--peach', 'Peach'], ['--orange', 'Orange'], ['--sand', 'Sand'],
+      ['--ink', 'Ink'], ['--muted', 'Muted ink'], ['--faint', 'Faint ink'],
+      ['--band-ok-bg', 'Band OK'], ['--band-tight-bg', 'Band tight'], ['--band-over-bg', 'Band over'],
+      ['--accent-soft', 'Accent soft'],
     ];
     const root = getComputedStyle(document.documentElement);
     const grid = document.getElementById('token-swatches');
-    tokens.forEach(([name, label]) => {
-      const val = root.getPropertyValue(name).trim();
-      const el = document.createElement('div');
-      el.className = 'swatch-card';
-      el.innerHTML = `<div class="chip" style="background:${val}"></div>
-        <div class="meta"><strong>${label}</strong><br><code>${name}</code><br><code>${val}</code></div>`;
-      grid.appendChild(el);
-    });
+    for (const [name, label] of tokens) {
+      const value = root.getPropertyValue(name).trim();
+      const card = document.createElement('div');
+      card.className = 'swatch-card';
+      card.innerHTML = `<div class="chip" style="background:${value}"></div>
+        <div class="meta"><strong>${label}</strong><code>${name}</code><code>${value}</code></div>`;
+      grid.appendChild(card);
+    }
   </script>
 </body>
 </html>

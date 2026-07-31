@@ -16,22 +16,33 @@ import {
   timeOffApi,
 } from './api.js';
 import {
-  scenarioOptions,
-  renderHomeView,
-  renderSetupProgressBanner,
-  setupSectionClass,
+  renderShell,
+  renderContext,
+  escapeHtml,
+  toast,
+  confirmDialog,
+  promptDialog,
+  withBusy,
+  captureFocus,
+  restoreFocus,
+} from './shell.js';
+import {
+  renderPlansView,
   renderPlannerView,
-  renderDependenciesView,
+  renderCapacityView,
   renderAlertsView,
-  openGatesBlock,
-  teamTabs,
-  capacityCellClass,
+  renderTeamView,
+  renderRulesView,
+  renderGuideView,
+  planOptions,
+  workspaceOptions,
 } from './views.js';
-import { getSetupProgress, getInitialRoute, resolveRoute, navItems, normalizeRoute } from './setup.js';
+import { renderWizard, blankWizard, validateStep } from './wizard.js';
+import { getInitialRoute, resolveRoute, navItems, normalizeRoute } from './setup.js';
 
 const APP_PATH = '/one-more-column/';
-const WORKSPACE_STORAGE_KEY = 'omc_active_workspace_id';
-const SCENARIO_STORAGE_KEY = 'omc_active_scenario_id';
+const WORKSPACE_KEY = 'omc_active_workspace_id';
+const SCENARIO_KEY = 'omc_active_scenario_id';
 
 const state = {
   auth: null,
@@ -56,770 +67,169 @@ const state = {
   alertCounts: { high: 0, medium: 0, low: 0 },
   activeTeamFilter: '',
   capacityGranularity: 'week',
-  drift: null,
-  setupDraftPeople: [],
-  setupDraft: {
-    newWorkspaceName: '',
-    newCycleName: '',
-    newCycleStart: '',
-    newCycleEnd: '',
-    newCycleGranularity: 'week',
-    personName: '',
-    personTeam: '',
-    personHours: '32',
-  },
-  setupUi: {
-    workspaceMode: null,
-    cycleMode: null,
-  },
+  /** Set after a server reload so the next render doesn't re-read the old DOM. */
+  skipCapture: false,
+
+  /** Rows whose detail drawer is open, kept across re-renders. */
+  expandedRows: new Set(),
+  /** Unsaved edits pending in the planner grid / team table. */
+  isDirty: false,
+  teamDirty: false,
+  redirectedFrom: null,
+  wizard: blankWizard(),
 };
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-function initials(name, email) {
-  const source = (name || email || '?').trim();
-  const parts = source.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-  return source.slice(0, 2).toUpperCase();
-}
+/* ── Routing ──────────────────────────────────────────────────────────── */
 
 function currentRoute() {
   const hash = location.hash.replace(/^#\/?/, '') || '';
-  const route = hash.split('?')[0] || 'planner';
-  return normalizeRoute(route);
+  return normalizeRoute(hash.split('?')[0] || 'planner');
 }
 
 function navigate(route) {
   location.hash = `#/${route}`;
 }
 
-function activeWorkspace() {
-  return state.workspaces.find((w) => w.id === state.activeWorkspaceId) || null;
-}
+/* ── Capturing in-flight edits ────────────────────────────────────────
+   render() replaces innerHTML wholesale. Before it does, anything the user has
+   typed but not saved has to be pulled back into state, or deleting one row
+   silently discards every edit made to the others. */
 
-function captureSetupForm() {
-  const draft = state.setupDraft;
-  const el = (id) => document.getElementById(id);
-  if (el('new-workspace-name')) draft.newWorkspaceName = el('new-workspace-name').value;
-  if (el('new-cycle-name')) draft.newCycleName = el('new-cycle-name').value;
-  if (el('new-cycle-start')) draft.newCycleStart = el('new-cycle-start').value;
-  if (el('new-cycle-end')) draft.newCycleEnd = el('new-cycle-end').value;
-  if (el('new-cycle-granularity')) draft.newCycleGranularity = el('new-cycle-granularity').value;
-  if (el('new-resource-name')) draft.personName = el('new-resource-name').value;
-  if (el('new-resource-team')) draft.personTeam = el('new-resource-team').value;
-  if (el('new-resource-hours')) draft.personHours = el('new-resource-hours').value;
+function captureGridEdits() {
+  for (const row of document.querySelectorAll('.planner-row[data-id]')) {
+    const item = state.planItems.find((p) => p.id === row.dataset.id);
+    if (!item) continue;
+    const read = (field) => row.querySelector(`[data-field="${field}"]`)?.value;
 
-  document.querySelectorAll('#setup-team-list tr[data-id]').forEach((row) => {
-    const resource = state.resources.find((r) => r.id === row.dataset.id);
-    if (!resource) return;
-    resource.name = row.querySelector('[data-field="name"]')?.value ?? resource.name;
-    resource.team = row.querySelector('[data-field="team"]')?.value || null;
-    const hours = row.querySelector('[data-field="weekly_hours"]')?.value;
-    const weeklyHours = Number(hours || resource.profiles?.[0]?.weekly_hours || 32);
-    if (resource.profiles?.length) {
-      resource.profiles[0].weekly_hours = weeklyHours;
-    } else {
-      resource.profiles = [{ weekly_hours: weeklyHours }];
+    item.title = read('title') ?? item.title;
+    item.work_hours = Number(read('work_hours') ?? item.work_hours) || 0;
+    item.due_week = read('due_week') || null;
+    item.attributes = { ...(item.attributes || {}) };
+    const startDate = read('start_date');
+    if (startDate !== undefined) item.attributes.start_date = startDate || null;
+    const taskType = read('task_type');
+    if (taskType !== undefined) item.attributes.task_type = taskType;
+  }
+
+  // Detail drawers carry duration/phase plus the gate rows.
+  for (const drawer of document.querySelectorAll('.gate-drawer[data-drawer-for]')) {
+    const item = state.planItems.find((p) => p.id === drawer.dataset.drawerFor);
+    if (!item) continue;
+    const days = drawer.querySelector('[data-field="duration_days"]')?.value;
+    const phase = drawer.querySelector('[data-field="phase"]')?.value;
+    item.attributes = { ...(item.attributes || {}) };
+    if (days !== undefined) {
+      item.attributes.duration_days = days === '' ? undefined : Number(days);
     }
-  });
-}
+    if (phase !== undefined) item.phase = phase || null;
 
-function syncSetupDraftField(target) {
-  const draft = state.setupDraft;
-  const map = {
-    'new-workspace-name': 'newWorkspaceName',
-    'new-cycle-name': 'newCycleName',
-    'new-cycle-start': 'newCycleStart',
-    'new-cycle-end': 'newCycleEnd',
-    'new-cycle-granularity': 'newCycleGranularity',
-    'new-resource-name': 'personName',
-    'new-resource-team': 'personTeam',
-    'new-resource-hours': 'personHours',
-  };
-  const key = map[target.id];
-  if (key) draft[key] = target.value;
-}
-
-function renderTeamPersonRows(state, escapeHtml) {
-  const existing = state.resources
-    .map(
-      (r) => `
-      <tr data-id="${escapeHtml(r.id)}">
-        <td><input class="field-input field-sm" data-field="name" value="${escapeHtml(r.name)}" /></td>
-        <td><input class="field-input field-sm" data-field="team" value="${escapeHtml(r.team || '')}" placeholder="Role" /></td>
-        <td><input class="field-input field-sm" data-field="weekly_hours" type="number" step="0.5" value="${r.profiles?.[0]?.weekly_hours ?? 32}" /></td>
-        <td class="team-action"><button type="button" class="btn btn-ghost btn-sm btn-delete-resource" title="Remove">×</button></td>
-      </tr>`,
-    )
-    .join('');
-
-  const drafts = (state.setupDraftPeople || [])
-    .map(
-      (p, i) => `
-      <tr class="team-draft-row" data-draft-idx="${i}">
-        <td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.team || '—')}</td>
-        <td>${p.weekly_hours ?? 32}</td>
-        <td class="team-action"><button type="button" class="btn btn-ghost btn-sm btn-remove-draft" data-idx="${i}" title="Remove">×</button></td>
-      </tr>`,
-    )
-    .join('');
-
-  return `
-    <table class="team-table">
-      <thead>
-        <tr><th>Who</th><th>Role</th><th>h/wk</th><th></th></tr>
-      </thead>
-      <tbody id="setup-team-list">
-        ${existing}
-        ${drafts}
-        <tr class="team-add-row" id="setup-team-add-row">
-          <td><input id="new-resource-name" class="field-input field-sm" placeholder="Name" value="${escapeHtml(state.setupDraft.personName)}" /></td>
-          <td><input id="new-resource-team" class="field-input field-sm" placeholder="Role" value="${escapeHtml(state.setupDraft.personTeam)}" /></td>
-          <td><input id="new-resource-hours" class="field-input field-sm" type="number" step="0.5" value="${escapeHtml(state.setupDraft.personHours)}" /></td>
-          <td class="team-action"><button type="button" class="btn btn-ghost btn-sm" id="add-to-team-list" title="Add">+</button></td>
-        </tr>
-      </tbody>
-    </table>`;
-}
-
-function persistActiveWorkspace() {
-  if (state.activeWorkspaceId) {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, state.activeWorkspaceId);
+    for (const gate of drawer.querySelectorAll('.gate-item[data-dep-id]')) {
+      const dep = state.dependencies.find((d) => d.id === gate.dataset.depId);
+      if (!dep) continue;
+      const read = (field) => gate.querySelector(`[data-field="${field}"]`)?.value;
+      dep.label = read('label') ?? dep.label;
+      dep.from_plan_item_id = read('from_plan_item_id') || null;
+      dep.status = read('dep_status') ?? dep.status;
+      dep.dep_type = read('dep_type') ?? dep.dep_type;
+      const due = read('dep_due');
+      if (due !== undefined) dep.meta = due ? { ...(dep.meta || {}), due_date: due } : {};
+    }
   }
 }
 
-function workspaceOptions(selectedId) {
-  if (!state.workspaces.length) {
-    return '<option value="">No workspaces</option>';
+function captureTeamEdits() {
+  for (const row of document.querySelectorAll('.table tbody tr[data-id]')) {
+    const resource = state.resources.find((r) => r.id === row.dataset.id);
+    if (!resource) continue;
+    const name = row.querySelector('[data-field="name"]')?.value;
+    const team = row.querySelector('[data-field="team"]')?.value;
+    const hours = row.querySelector('[data-field="weekly_hours"]')?.value;
+    if (name === undefined && hours === undefined) continue;
+
+    if (name !== undefined) resource.name = name;
+    if (team !== undefined) resource.team = team || null;
+    if (hours !== undefined) {
+      const weekly = Number(hours) || 0;
+      if (resource.profiles?.length) resource.profiles[0].weekly_hours = weekly;
+      else resource.profiles = [{ weekly_hours: weekly }];
+    }
   }
-  return state.workspaces
-    .map(
-      (w) =>
-        `<option value="${escapeHtml(w.id)}"${w.id === selectedId ? ' selected' : ''}>${escapeHtml(w.name)}</option>`,
-    )
-    .join('');
 }
 
-function renderShell({ body, activeNav = 'planner' }) {
-  const items = navItems(state);
-  const nav = items
-    .map((item) => {
-      const cls = [
-        'nav-link',
-        activeNav === item.id ? 'active' : '',
-        item.highlight ? 'nav-link-next' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
-      const dot = item.highlight ? '<span class="nav-link-dot" aria-hidden="true"></span>' : '';
-      return `<a href="#/${item.id}" class="${cls}">${item.label}${dot}</a>`;
-    })
-    .join('');
-
-  const user = state.me?.user || state.auth?.user || {};
-  const displayName = user.name || user.email || 'Signed in';
-  const avatar = initials(user.name, user.email);
-
-  const contentClass =
-    activeNav === 'settings' ? 'content content-setup' : 'content content-wide';
-
-  return `
-    <header class="app-header">
-      <div class="header-inner">
-        <div class="header-brand">
-          <div class="brand-mark" aria-hidden="true">OMC</div>
-          <div>
-            <div class="app-name">One More Column</div>
-            <div class="app-sub">Flexible capacity planning</div>
-          </div>
-        </div>
-        <nav class="header-nav" aria-label="Main">${nav}</nav>
-        <div class="header-actions">
-          <label class="workspace-switcher">
-            <span class="sr-only">Workspace</span>
-            <select id="workspace-select" class="field-input field-sm workspace-select" title="Switch workspace">
-              ${workspaceOptions(state.activeWorkspaceId)}
-            </select>
-          </label>
-          <a href="/" class="btn btn-ghost btn-sm">← inaayat.xyz</a>
-          <span class="auth-chip">
-            <span class="auth-avatar">${escapeHtml(avatar)}</span>
-            <span>${escapeHtml(displayName)}</span>
-          </span>
-          <a href="/account.html" class="btn btn-ghost btn-sm" id="nav-auth-link">Log out</a>
-        </div>
-      </div>
-    </header>
-    <main class="main">
-      <div class="${contentClass}">${body}</div>
-    </main>
-  `;
-}
-
-function renderSignInPrompt(auth) {
-  const loginHref = `/account.html?next=${encodeURIComponent(location.pathname || APP_PATH)}`;
-  const reauthNote = auth.needsReauth
-    ? '<div class="token-banner expired"><div><strong>Session expired.</strong> Sign in again to continue.</div></div>'
-    : '';
-
-  return `
-    <main class="main">
-      <div class="content content-centered">
-        ${reauthNote}
-        <section class="panel">
-          <h1 class="omc-title">One More Column</h1>
-          <p class="omc-lead">Sign in with the same account you use for AMC A-Lister.</p>
-          <p style="margin-top:16px">
-            <a class="btn btn-refresh-solid" href="${loginHref}">Sign in</a>
-          </p>
-        </section>
-      </div>
-    </main>
-  `;
-}
-
-function formatCycleDateRange(cycle) {
-  const start = cycle?.start_date ? String(cycle.start_date).slice(0, 10) : '';
-  const end = cycle?.end_date ? String(cycle.end_date).slice(0, 10) : '';
-  if (start && end) return `${start} → ${end}`;
-  if (start) return `from ${start}`;
-  if (end) return `until ${end}`;
-  return '';
-}
-
-function cycleOptions(selectedId) {
-  if (!state.cycles.length) {
-    return '<option value="">No plan yet — name one below</option>';
+function captureWizardFields() {
+  const wizard = state.wizard;
+  const val = (id) => document.getElementById(id)?.value;
+  if (wizard.step === 1) {
+    wizard.name = val('wiz-name') ?? wizard.name;
+    wizard.start = val('wiz-start') ?? wizard.start;
+    wizard.end = val('wiz-end') ?? wizard.end;
+    wizard.newWorkspaceName = val('wiz-new-workspace') ?? wizard.newWorkspaceName;
+  } else if (wizard.step === 2) {
+    wizard.person = {
+      name: val('wiz-person-name') ?? wizard.person.name,
+      role: val('wiz-person-role') ?? wizard.person.role,
+      hours: val('wiz-person-hours') ?? wizard.person.hours,
+    };
   }
-  return state.cycles
-    .map((c) => {
-      const range = formatCycleDateRange(c);
-      const suffix = range ? ` (${range})` : '';
-      return `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}${escapeHtml(suffix)}</option>`;
-    })
-    .join('');
 }
 
-function renderHome() {
-  return renderShell({
-    activeNav: 'home',
-    body: renderHomeView({ state, escapeHtml }),
-  });
-}
-
-function renderCapacity() {
-  const grid = state.capacity;
-  if (!state.activeCycleId) {
-    return renderShell({
-      activeNav: 'capacity',
-      body: `<section class="panel"><p class="omc-lead">Finish setup first — name a plan on the Setup page.</p></section>`,
-    });
-  }
-
-  if (!grid) {
-    return renderShell({
-      activeNav: 'capacity',
-      body: `<section class="panel"><p class="omc-lead">Loading capacity…</p></section>`,
-    });
-  }
-
-  const granularity = grid.granularity || state.capacityGranularity || 'week';
-  const periodHeaders = grid.weeks
-    .map((w) => `<th class="cap-week">${escapeHtml(formatPeriodLabel(w, granularity))}</th>`)
-    .join('');
-
-  const rows = grid.rows
-    .map((row) => {
-      const cells = row.weeks
-        .map((cell) => {
-          const cls = capacityCellClass(cell);
-          return `<td class="${cls}" title="Cap ${cell.capacity}h / Load ${cell.load}h / Rem ${cell.remaining}h">
-            <span class="cap-load">${cell.load || '—'}</span>
-            <span class="cap-rem">${cell.remaining}</span>
-          </td>`;
-        })
-        .join('');
-      return `<tr>
-        <th class="cap-person">${escapeHtml(row.name)}<span class="cap-team">${escapeHtml(row.team || '')}</span></th>
-        ${cells}
-      </tr>`;
-    })
-    .join('');
-
-  return renderShell({
-    activeNav: 'capacity',
-    body: `
-      <section class="panel">
-        <div class="panel-head">
-          <div>
-            <h1 class="omc-title">Capacity</h1>
-            <p class="omc-lead">See how many hours each person has each week or month. Green means they have room; red means they are overloaded.</p>
-          </div>
-          <div class="btn-row">
-            <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
-            <select id="scenario-select" class="field-input">${scenarioOptions(state.scenarios, state.activeScenarioId)}</select>
-            <div class="view-toggle view-toggle-sm" role="group" aria-label="Time granularity">
-              <button type="button" class="view-toggle-btn${granularity === 'week' ? ' active' : ''}" id="cap-granularity-week">Weeks</button>
-              <button type="button" class="view-toggle-btn${granularity === 'month' ? ' active' : ''}" id="cap-granularity-month">Months</button>
-            </div>
-            <select id="cap-mode" class="field-input">
-              <option value="due"${grid.mode === 'due' ? ' selected' : ''}>Due week</option>
-              <option value="spread"${grid.mode === 'spread' ? ' selected' : ''}>Spread</option>
-            </select>
-            <button type="button" class="btn btn-ghost btn-sm" id="export-capacity">Export CSV</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="refresh-capacity">Refresh</button>
-          </div>
-        </div>
-        ${openGatesBlock(state, escapeHtml)}
-        ${teamTabs(grid.teams || state.teams, state.activeTeamFilter, escapeHtml)}
-        <div class="cap-legend">
-          <span><span class="legend-dot ok"></span> Green — comfortable</span>
-          <span><span class="legend-dot warn"></span> Yellow — tight</span>
-          <span><span class="legend-dot bad"></span> Red — overloaded</span>
-          <span class="cap-legend-note">Cells show load (top) and remaining hours (bottom)</span>
-        </div>
-        <div class="cap-scroll">
-          <table class="cap-table">
-            <thead><tr><th class="cap-person">Person</th>${periodHeaders}</tr></thead>
-            <tbody>${rows || '<tr><td colspan="99">No active resources. Add people in Settings.</td></tr>'}</tbody>
-          </table>
-        </div>
-      </section>
-    `,
-  });
-}
-
-function resolveSetupMode(kind, hasExisting, forceNew = false) {
-  if (forceNew) return 'new';
-  const stored = state.setupUi?.[`${kind}Mode`];
-  if (stored === 'existing' && !hasExisting) return 'new';
-  if (stored) return stored;
-  return hasExisting ? 'existing' : 'new';
-}
-
-function getActiveSetupMode(kind) {
-  const btn = document.querySelector(`[data-setup-mode="${kind}"] .view-toggle-btn.active`);
-  if (btn?.dataset.mode) return btn.dataset.mode;
-  if (kind === 'workspace') return resolveSetupMode('workspace', state.workspaces.length > 0);
-  const wsBtn = document.querySelector('[data-setup-mode="workspace"] .view-toggle-btn.active');
-  const wsMode = wsBtn?.dataset.mode || resolveSetupMode('workspace', state.workspaces.length > 0);
-  return resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
-}
-
-function renderSetupModeToggle(kind, activeMode, hasExisting) {
-  const labels =
-    kind === 'workspace'
-      ? { existing: 'Existing', new: 'New' }
-      : { existing: 'Existing', new: 'New' };
-  return `
-    <div class="setup-mode-toggle view-toggle view-toggle-sm" role="group" data-setup-mode="${kind}">
-      <button type="button" class="view-toggle-btn${activeMode === 'existing' ? ' active' : ''}" data-mode="existing"${!hasExisting ? ' disabled' : ''}>${labels.existing}</button>
-      <button type="button" class="view-toggle-btn${activeMode === 'new' ? ' active' : ''}" data-mode="new">${labels.new}</button>
-    </div>
-  `;
-}
-
-function collectPersonFromForm() {
-  return {
-    name: state.setupDraft.personName?.trim() || '',
-    team: state.setupDraft.personTeam?.trim() || null,
-    weekly_hours: Number(state.setupDraft.personHours || 32),
-  };
-}
-
-function clearPersonForm() {
-  state.setupDraft.personName = '';
-  state.setupDraft.personTeam = '';
-  state.setupDraft.personHours = '32';
-}
-
-function renderSetupSubmitBar(progress) {
-  const label = progress.planningReady && !state.setupDraftPeople.length
-    ? 'Continue to Planner →'
-    : 'Create the plan →';
-  return `
-    <div class="setup-submit-inline">
-      <button type="submit" class="btn btn-refresh-solid setup-submit-btn">${label}</button>
-    </div>
-  `;
-}
-
-async function submitSetupPlan() {
-  captureSetupForm();
-  const wsMode = getActiveSetupMode('workspace');
-  const cycleMode = wsMode === 'new' ? 'new' : getActiveSetupMode('cycle');
-  const newWsName = state.setupDraft.newWorkspaceName?.trim();
-  const wsSelect = document.getElementById('workspace-select-settings')?.value;
-  const newCycleName = state.setupDraft.newCycleName?.trim();
-  const cycleSelect = document.getElementById('cycle-select')?.value;
-
-  const people = [...state.setupDraftPeople];
-  const current = collectPersonFromForm();
-  if (current.name) people.push(current);
-
-  const progress = getSetupProgress(state);
-  if (
-    progress.planningReady
-    && wsMode === 'existing'
-    && cycleMode === 'existing'
-    && !people.length
-  ) {
-    await refreshView();
-    navigate('planner');
+function captureAll() {
+  // After a reload the DOM still holds the pre-reload markup, so capturing from
+  // it would write stale values straight back over the fresh server data.
+  if (state.skipCapture) {
+    state.skipCapture = false;
     return;
   }
+  const route = currentRoute();
+  if (route === 'planner') captureGridEdits();
+  if (route === 'team') captureTeamEdits();
+  if (route === 'plans' && state.wizard.open) captureWizardFields();
+}
 
-  let workspaceId = null;
-  if (wsMode === 'new') {
-    if (!newWsName) {
-      alert('Enter a name for the new workspace.');
-      return;
-    }
-    const { workspace } = await workspacesApi.create(state.token, {
-      name: newWsName,
-      profile: 'default',
-    });
-    workspaceId = workspace.id;
-  } else {
-    workspaceId = wsSelect || state.activeWorkspaceId;
-    if (!workspaceId) {
-      alert('Pick a workspace from the list.');
-      return;
-    }
+/** Persists pending grid edits before any action that reloads from the server. */
+async function flushPendingEdits() {
+  captureGridEdits();
+  if (state.isDirty) await savePlannerGrid({ silent: true });
+}
+
+function markDirty() {
+  if (state.isDirty) return;
+  state.isDirty = true;
+  const save = document.getElementById('save-planner');
+  if (save) save.disabled = false;
+  const bar = save?.closest('.btn-row');
+  if (bar && !bar.querySelector('.dirty-flag')) {
+    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
   }
-  state.activeWorkspaceId = workspaceId;
-  persistActiveWorkspace();
+}
 
-  let cycleId = null;
-  if (cycleMode === 'new') {
-    const startDate = state.setupDraft.newCycleStart;
-    const endDate = state.setupDraft.newCycleEnd;
-    const trackingGranularity = state.setupDraft.newCycleGranularity || 'week';
-    if (!newCycleName) {
-      alert('Enter a name for this plan.');
-      return;
-    }
-    if (!startDate || !endDate) {
-      alert('Enter start and end dates for this plan.');
-      return;
-    }
-    const result = await cyclesApi.create(state.token, workspaceId, {
-      name: newCycleName,
-      cycle_type: 'custom',
-      start_date: startDate,
-      end_date: endDate,
-      policy: { tracking_granularity: trackingGranularity },
-    });
-    cycleId = result.cycle.id;
-    state.activeScenarioId = result.default_scenario_id;
-  } else {
-    cycleId = cycleSelect || state.activeCycleId;
-    if (!cycleId) {
-      alert('Pick an existing plan from the list.');
-      return;
-    }
+function markTeamDirty() {
+  if (state.teamDirty) return;
+  state.teamDirty = true;
+  const save = document.getElementById('save-team');
+  if (save) save.disabled = false;
+  const bar = save?.closest('.btn-row');
+  if (bar && !bar.querySelector('.dirty-flag')) {
+    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
   }
-  state.activeCycleId = cycleId;
-
-  for (const person of people) {
-    await resourcesApi.create(state.token, workspaceId, {
-      name: person.name,
-      team: person.team,
-      weekly_hours: person.weekly_hours,
-    });
-  }
-
-  const rows = [...document.querySelectorAll('#setup-team-list tr[data-id]')];
-  if (rows.length) {
-    const resources = rows.map((row) => ({
-      id: row.dataset.id,
-      name: row.querySelector('[data-field="name"]')?.value,
-      team: row.querySelector('[data-field="team"]')?.value || null,
-      weekly_hours: Number(row.querySelector('[data-field="weekly_hours"]')?.value || 0) || null,
-    }));
-    await resourcesApi.patch(state.token, workspaceId, resources);
-  }
-
-  state.setupDraftPeople = [];
-  state.setupDraft = {
-    newWorkspaceName: '',
-    newCycleName: '',
-    newCycleStart: '',
-    newCycleEnd: '',
-    newCycleGranularity: 'week',
-    personName: '',
-    personTeam: '',
-    personHours: '32',
-  };
-  clearPersonForm();
-  await refreshView();
-  navigate('planner');
 }
 
-function formatPtoChip(entry, escapeHtml) {
-  const start = String(entry.start_date).slice(0, 10);
-  const end = String(entry.end_date).slice(0, 10);
-  const hrs = entry.hours_per_day != null ? `${entry.hours_per_day}h/day` : 'full day';
-  return `<span class="pto-chip">${escapeHtml(start)} → ${escapeHtml(end)} (${escapeHtml(hrs)}) <button type="button" class="btn btn-ghost btn-sm btn-del-pto" data-id="${escapeHtml(entry.id)}" title="Remove PTO">×</button></span>`;
-}
+/* ── Data loading ─────────────────────────────────────────────────────── */
 
-function renderPeopleDetailsPanel(state, escapeHtml) {
-  if (!state.resources.length) {
-    return `
-      <section class="panel">
-        <h2 class="omc-section-title">People details</h2>
-        <p class="omc-lead">Add your team on Setup first — then you can layer on PTO and other details here.</p>
-      </section>`;
-  }
-
-  const ptoList = state.resources
-    .filter((r) => r.time_off?.length)
-    .map(
-      (r) => `
-      <li><strong>${escapeHtml(r.name)}</strong>
-        ${r.time_off.map((t) => formatPtoChip(t, escapeHtml)).join(' ')}
-      </li>`,
-    )
-    .join('');
-
-  return `
-    <section class="panel">
-      <h2 class="omc-section-title">People details</h2>
-      <p class="omc-lead" style="margin-bottom:12px">PTO and other per-person details — optional, add after your team is set up.</p>
-      <div class="form-grid setup-form-grid">
-        <label class="field">
-          <span class="field-label">Person</span>
-          <select id="pto-resource" class="field-input">
-            ${state.resources.map((r) => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('')}
-          </select>
-        </label>
-        <label class="field">
-          <span class="field-label">PTO starts</span>
-          <input id="pto-start" class="field-input" type="date" />
-        </label>
-        <label class="field">
-          <span class="field-label">PTO ends</span>
-          <input id="pto-end" class="field-input" type="date" />
-        </label>
-        <label class="field">
-          <span class="field-label">Hours/day (blank = full)</span>
-          <input id="pto-hours" class="field-input" type="number" step="0.5" />
-        </label>
-        <div class="field" style="align-self:end">
-          <button type="button" class="btn btn-ghost" id="add-pto">Add PTO</button>
-        </div>
-      </div>
-      ${ptoList ? `<ul class="people-pto-list">${ptoList}</ul>` : '<p class="omc-lead">No PTO added yet.</p>'}
-    </section>`;
-}
-
-function renderSettings() {
-  const progress = getSetupProgress(state);
-  const wsMode = resolveSetupMode('workspace', state.workspaces.length > 0);
-  const cycleMode = resolveSetupMode('cycle', state.cycles.length > 0, wsMode === 'new');
-  const draft = state.setupDraft;
-  const gran = draft.newCycleGranularity || 'week';
-
-  return renderShell({
-    activeNav: 'settings',
-    body: `
-      <form id="setup-plan-form" class="setup-plan-form">
-      <div class="setup-primary">
-      <div class="setup-steps-row setup-steps-row-2">
-      <section id="setup-plan" class="${setupSectionClass(progress, 'setup-plan')}">
-        <div class="setup-section-body">
-        <div class="setup-section-head">
-          <h2 class="omc-section-title">Name your plan</h2>
-          ${renderSetupSubmitBar(progress)}
-        </div>
-
-        <div class="setup-field-row">
-          <span class="setup-field-label">Workspace</span>
-          ${renderSetupModeToggle('workspace', wsMode, state.workspaces.length > 0)}
-        </div>
-        <div class="setup-mode-panel${wsMode === 'existing' ? '' : ' hidden'}">
-          <label class="field field-compact">
-            <select id="workspace-select-settings" class="field-input">${workspaceOptions(state.activeWorkspaceId)}</select>
-          </label>
-        </div>
-        <div class="setup-mode-panel${wsMode === 'new' ? '' : ' hidden'}">
-          <label class="field field-compact">
-            <input id="new-workspace-name" class="field-input" placeholder="Workspace name" value="${escapeHtml(draft.newWorkspaceName)}" />
-          </label>
-        </div>
-
-        ${wsMode !== 'new' ? `
-        <div class="setup-field-row">
-          <span class="setup-field-label">Plan</span>
-          ${renderSetupModeToggle('cycle', cycleMode, state.cycles.length > 0)}
-        </div>
-        ` : ''}
-        <div class="setup-mode-panel${cycleMode === 'existing' && wsMode !== 'new' ? '' : ' hidden'}">
-          <label class="field field-compact">
-            <select id="cycle-select" class="field-input">${cycleOptions(state.activeCycleId)}</select>
-          </label>
-        </div>
-        <div class="setup-mode-panel${cycleMode === 'new' || wsMode === 'new' ? '' : ' hidden'}">
-        <div class="form-grid setup-plan-grid">
-          <label class="field field-compact">
-            <span class="field-label">Plan name</span>
-            <input id="new-cycle-name" class="field-input" placeholder="e.g. Q1 2026" value="${escapeHtml(draft.newCycleName)}" />
-          </label>
-          <label class="field field-compact">
-            <span class="field-label">Track by</span>
-            <select id="new-cycle-granularity" class="field-input">
-              <option value="day"${gran === 'day' ? ' selected' : ''}>Day</option>
-              <option value="week"${gran === 'week' ? ' selected' : ''}>Week</option>
-              <option value="month"${gran === 'month' ? ' selected' : ''}>Month</option>
-            </select>
-          </label>
-          <label class="field field-compact">
-            <span class="field-label">Starts</span>
-            <input id="new-cycle-start" class="field-input" type="date" required value="${escapeHtml(draft.newCycleStart)}" />
-          </label>
-          <label class="field field-compact">
-            <span class="field-label">Ends</span>
-            <input id="new-cycle-end" class="field-input" type="date" required value="${escapeHtml(draft.newCycleEnd)}" />
-          </label>
-        </div>
-        </div>
-        ${wsMode === 'existing' && state.workspaces.length > 1 && state.activeWorkspaceId ? `
-          <button type="button" class="btn btn-ghost btn-sm setup-delete-btn" id="delete-workspace">Delete workspace</button>
-        ` : ''}
-        ${cycleMode === 'existing' && wsMode !== 'new' && state.activeCycleId ? `
-          <button type="button" class="btn btn-ghost btn-sm setup-delete-btn" id="delete-cycle">Delete plan</button>
-        ` : ''}
-        </div>
-      </section>
-
-      <section id="setup-people" class="${setupSectionClass(progress, 'setup-people')}">
-        <div class="setup-section-body">
-        <h2 class="omc-section-title">Team <span class="setup-optional-tag">optional</span></h2>
-        ${renderTeamPersonRows(state, escapeHtml)}
-        </div>
-      </section>
-      </div>
-      </div>
-      </form>
-    `,
-  });
-}
-
-function renderPreferences() {
-  const policy = state.policy?.config || {};
-  return renderShell({
-    activeNav: 'preferences',
-    body: `
-      <section class="panel">
-        <h1 class="omc-title">Settings</h1>
-        <p class="omc-lead">Planning rules, people details, and change history for this plan.</p>
-      </section>
-      <div class="setup-optional-row setup-optional-row-3">
-      <section class="panel">
-        <h2 class="omc-section-title">Planning rules</h2>
-        <p class="omc-lead" style="margin-bottom:12px">Defaults for hours and overload warnings.</p>
-        <div class="form-grid setup-form-grid">
-          <label class="field">
-            <span class="field-label">Default weekly hours</span>
-            <input id="policy-weekly" class="field-input" type="number" value="${policy.weekly_capacity_default ?? 32}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Review ratio</span>
-            <input id="policy-review" class="field-input" type="number" step="0.01" value="${policy.review_ratio ?? 0.35}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Overload threshold</span>
-            <input id="policy-threshold" class="field-input" type="number" step="0.05" value="${policy.overload_threshold ?? 1}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Alert proximity (days)</span>
-            <input id="policy-proximity" class="field-input" type="number" value="${policy.alert_proximity_days ?? 14}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Yellow band (h remaining)</span>
-            <input id="policy-yellow" class="field-input" type="number" value="${policy.band_yellow_remaining ?? 8}" />
-          </label>
-          <label class="field">
-            <span class="field-label">Review floor hours</span>
-            <input id="policy-review-floor" class="field-input" type="number" step="0.5" value="${policy.review_floor_hours ?? 0}" />
-          </label>
-          <div class="field" style="align-self:end">
-            <button type="button" class="btn btn-ghost" id="save-policy">Save policy</button>
-          </div>
-        </div>
-      </section>
-
-      ${renderPeopleDetailsPanel(state, escapeHtml)}
-
-      <section class="panel">
-        <h2 class="omc-section-title">Changelog</h2>
-        <ul class="changelog-list">
-          ${(state.changelog || []).slice(0, 15).map((e) => `<li><span class="mono">${escapeHtml(new Date(e.created_at).toLocaleString())}</span> — ${escapeHtml(e.summary)}</li>`).join('') || '<li class="omc-lead">No changes logged yet.</li>'}
-        </ul>
-      </section>
-      </div>
-    `,
-  });
-}
-
-function renderPlanner() {
-  return renderShell({
-    activeNav: 'planner',
-    body: renderPlannerView({
-      state,
-      escapeHtml,
-      cycleOptions,
-      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
-    }),
-  });
-}
-
-function renderDependencies() {
-  return renderShell({
-    activeNav: 'dependencies',
-    body: renderDependenciesView({
-      state,
-      escapeHtml,
-      cycleOptions,
-      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
-    }),
-  });
-}
-
-function formatWeekLabel(isoDate) {
-  const d = new Date(`${isoDate}T00:00:00.000Z`);
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-}
-
-function formatPeriodLabel(key, granularity = 'week') {
-  if (granularity === 'month' && /^\d{4}-\d{2}$/.test(key)) {
-    const [year, month] = key.split('-').map(Number);
-    return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('en-US', {
-      month: 'short',
-      year: 'numeric',
-      timeZone: 'UTC',
-    });
-  }
-  return formatWeekLabel(key);
+function persistWorkspace() {
+  if (state.activeWorkspaceId) localStorage.setItem(WORKSPACE_KEY, state.activeWorkspaceId);
 }
 
 async function loadWorkspaces() {
   const { workspaces } = await workspacesApi.list(state.token);
   state.workspaces = workspaces;
 
-  const stored = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  const stored = localStorage.getItem(WORKSPACE_KEY);
   if (stored && workspaces.some((w) => w.id === stored)) {
     state.activeWorkspaceId = stored;
   } else if (workspaces.length) {
     state.activeWorkspaceId = workspaces[0].id;
-    persistActiveWorkspace();
+    persistWorkspace();
   } else {
     state.activeWorkspaceId = null;
   }
@@ -828,14 +238,16 @@ async function loadWorkspaces() {
 async function loadCoreData() {
   const token = state.token;
   if (!state.activeWorkspaceId) {
-    state.cycles = [];
-    state.resources = [];
-    state.teams = [];
-    state.policy = null;
-    state.planItems = [];
-    state.scenarios = [];
-    state.activeScenarioId = null;
-    state.activeCycleId = null;
+    Object.assign(state, {
+      cycles: [],
+      resources: [],
+      teams: [],
+      policy: null,
+      planItems: [],
+      scenarios: [],
+      activeScenarioId: null,
+      activeCycleId: null,
+    });
     return;
   }
 
@@ -846,28 +258,59 @@ async function loadCoreData() {
   state.cycles = cycles;
   state.resources = resources;
   state.teams = teams;
+  state.teamDirty = false;
+  state.skipCapture = true;
 
   if (state.activeCycleId && !cycles.some((c) => c.id === state.activeCycleId)) {
     state.activeCycleId = null;
     state.activeScenarioId = null;
   }
-  if (!state.activeCycleId && cycles.length) {
-    state.activeCycleId = cycles[0].id;
-  }
+  if (!state.activeCycleId && cycles.length) state.activeCycleId = cycles[0].id;
+
   if (state.activeCycleId) {
     const { policy } = await policyApi.get(token, state.activeCycleId);
     state.policy = policy;
     const tracking = policy?.config?.tracking_granularity;
-    if (tracking === 'month' || tracking === 'week') {
-      state.capacityGranularity = tracking;
-    } else if (tracking === 'day') {
-      state.capacityGranularity = 'week';
-    }
+    if (tracking === 'month' || tracking === 'week') state.capacityGranularity = tracking;
+    else if (tracking === 'day') state.capacityGranularity = 'week';
     await loadScenarioData();
   }
 }
 
-async function loadPlannerData() {
+async function loadScenarioData() {
+  const token = state.token;
+  if (!state.activeCycleId) return;
+
+  const { scenarios } = await scenariosApi.list(token, state.activeCycleId);
+  state.scenarios = scenarios;
+
+  const stored = localStorage.getItem(SCENARIO_KEY);
+  if (stored && scenarios.some((s) => s.id === stored)) {
+    state.activeScenarioId = stored;
+  } else if (state.activeScenarioId && scenarios.some((s) => s.id === state.activeScenarioId)) {
+    // keep the current selection
+  } else if (scenarios.length) {
+    const active = scenarios.find((s) => s.status === 'active') || scenarios[0];
+    state.activeScenarioId = active.id;
+    localStorage.setItem(SCENARIO_KEY, active.id);
+  } else {
+    state.activeScenarioId = null;
+  }
+
+  if (state.activeScenarioId) {
+    const { plan_items } = await planItemsApi.list(token, { scenario: state.activeScenarioId });
+    state.planItems = plan_items;
+    await loadDependencies();
+  } else {
+    state.planItems = [];
+    state.dependencies = [];
+    state.readiness = [];
+  }
+  state.isDirty = false;
+  state.skipCapture = true;
+}
+
+async function loadDependencies() {
   if (!state.activeCycleId || !state.activeScenarioId) {
     state.dependencies = [];
     state.readiness = [];
@@ -881,47 +324,17 @@ async function loadPlannerData() {
   state.readiness = readiness;
 }
 
-async function loadScenarioData() {
-  const token = state.token;
-  if (!state.activeCycleId) return;
-
-  const { scenarios } = await scenariosApi.list(token, state.activeCycleId);
-  state.scenarios = scenarios;
-
-  const stored = localStorage.getItem(SCENARIO_STORAGE_KEY);
-  if (stored && scenarios.some((s) => s.id === stored)) {
-    state.activeScenarioId = stored;
-  } else if (state.activeScenarioId && scenarios.some((s) => s.id === state.activeScenarioId)) {
-    // keep current
-  } else if (scenarios.length) {
-    const active = scenarios.find((s) => s.status === 'active') || scenarios[0];
-    state.activeScenarioId = active.id;
-    localStorage.setItem(SCENARIO_STORAGE_KEY, active.id);
-  } else {
-    state.activeScenarioId = null;
-  }
-
-  if (state.activeScenarioId) {
-    const { plan_items } = await planItemsApi.list(token, { scenario: state.activeScenarioId });
-    state.planItems = plan_items;
-    await loadPlannerData();
-  } else {
-    state.planItems = [];
-    state.dependencies = [];
-    state.readiness = [];
-  }
-}
-
-async function loadCapacity(mode = 'due', granularity = state.capacityGranularity) {
+async function loadCapacity(mode, granularity = state.capacityGranularity) {
   if (!state.activeCycleId) {
     state.capacity = null;
     return;
   }
+  const resolvedMode = mode || document.getElementById('cap-mode')?.value || 'due';
   state.capacity = await capacityApi.get(state.token, {
     cycle: state.activeCycleId,
     scenario: state.activeScenarioId || undefined,
     team: state.activeTeamFilter || undefined,
-    mode,
+    mode: resolvedMode,
     granularity,
   });
   state.capacityGranularity = granularity;
@@ -930,6 +343,7 @@ async function loadCapacity(mode = 'due', granularity = state.capacityGranularit
 async function loadAlerts() {
   if (!state.activeCycleId) {
     state.alerts = [];
+    state.alertCounts = { high: 0, medium: 0, low: 0 };
     return;
   }
   const data = await alertsApi.list(state.token, {
@@ -949,6 +363,799 @@ async function loadChangelog() {
   state.changelog = changelog;
 }
 
+/** Loads whatever the given route needs beyond core data. */
+async function loadForRoute(route) {
+  if (route === 'capacity') await loadCapacity();
+  if (route === 'alerts') await loadAlerts();
+  if (route === 'rules') await loadChangelog();
+}
+
+/* ── Saving ───────────────────────────────────────────────────────────── */
+
+async function savePlannerGrid({ silent = false } = {}) {
+  captureGridEdits();
+
+  const plan_items = state.planItems.map((item) => ({
+    id: item.id,
+    title: item.title,
+    phase: item.phase || null,
+    work_hours: Number(item.work_hours) || 0,
+    due_week: item.due_week || null,
+    attributes: item.attributes || {},
+  }));
+
+  const dependencies = state.dependencies.map((dep) => ({
+    id: dep.id,
+    from_plan_item_id: dep.from_plan_item_id || null,
+    dep_type: dep.dep_type,
+    label: dep.label || null,
+    status: dep.status,
+    meta: dep.meta || {},
+  }));
+
+  if (plan_items.length) await planItemsApi.patch(state.token, plan_items);
+  if (dependencies.length) await dependenciesApi.patch(state.token, dependencies);
+
+  state.isDirty = false;
+  await loadScenarioData();
+  if (!silent) toast('Plan saved');
+}
+
+async function saveTeam() {
+  captureTeamEdits();
+  const resources = state.resources.map((r) => ({
+    id: r.id,
+    name: r.name,
+    team: r.team || null,
+    weekly_hours: Number(r.profiles?.[0]?.weekly_hours) || null,
+  }));
+  if (resources.length) await resourcesApi.patch(state.token, state.activeWorkspaceId, resources);
+  state.teamDirty = false;
+  await loadCoreData();
+  toast('Team saved');
+}
+
+/* ── Wizard ───────────────────────────────────────────────────────────── */
+
+function openWizard() {
+  state.wizard = blankWizard();
+  state.wizard.open = true;
+  state.redirectedFrom = null;
+  render();
+}
+
+function closeWizard() {
+  state.wizard.open = false;
+  render();
+}
+
+async function createPlanFromWizard(button) {
+  const wizard = state.wizard;
+  const errors = validateStep(wizard, 1);
+  if (Object.keys(errors).length) {
+    wizard.errors = errors;
+    wizard.step = 1;
+    render();
+    toast('Some details still need fixing', 'error');
+    return;
+  }
+
+  await withBusy(button, 'Creating…', async () => {
+    let workspaceId = state.activeWorkspaceId;
+    if (wizard.useNewWorkspace) {
+      const { workspace } = await workspacesApi.create(state.token, {
+        name: wizard.newWorkspaceName.trim(),
+        profile: 'default',
+      });
+      workspaceId = workspace.id;
+    }
+    state.activeWorkspaceId = workspaceId;
+    persistWorkspace();
+
+    const result = await cyclesApi.create(state.token, workspaceId, {
+      name: wizard.name.trim(),
+      cycle_type: 'custom',
+      start_date: wizard.start,
+      end_date: wizard.end,
+      policy: { tracking_granularity: wizard.granularity },
+    });
+    state.activeCycleId = result.cycle.id;
+    state.activeScenarioId = result.default_scenario_id || null;
+    if (state.activeScenarioId) localStorage.setItem(SCENARIO_KEY, state.activeScenarioId);
+
+    for (const person of wizard.people) {
+      await resourcesApi.create(state.token, workspaceId, {
+        name: person.name,
+        team: person.role || null,
+        weekly_hours: Number(person.hours) || 32,
+      });
+    }
+
+    state.wizard = blankWizard();
+    await loadWorkspaces();
+    await loadCoreData();
+    toast(`"${result.cycle.name}" is ready`);
+    navigate('planner');
+    render();
+  });
+}
+
+function wireWizardEvents() {
+  const wizard = state.wizard;
+
+  const rerender = () => {
+    captureWizardFields();
+    render();
+  };
+
+  document.getElementById('wiz-show-workspace')?.addEventListener('click', () => {
+    captureWizardFields();
+    wizard.showWorkspace = true;
+    render();
+  });
+
+  document.querySelectorAll('[data-ws-mode]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      captureWizardFields();
+      wizard.useNewWorkspace = btn.dataset.wsMode === 'new';
+      render();
+    });
+  });
+
+  document.getElementById('wiz-workspace')?.addEventListener('change', (e) => {
+    state.activeWorkspaceId = e.target.value;
+    persistWorkspace();
+  });
+
+  document.querySelectorAll('input[name="wiz-granularity"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      captureWizardFields();
+      wizard.granularity = radio.value;
+      render();
+    });
+  });
+
+  // Keep the plain-English summary in step with what's typed.
+  ['wiz-name', 'wiz-start', 'wiz-end'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', rerender);
+  });
+
+  document.getElementById('wiz-next')?.addEventListener('click', () => {
+    captureWizardFields();
+    const errors = validateStep(wizard, wizard.step);
+    wizard.errors = errors;
+    if (Object.keys(errors).length) {
+      render();
+      return;
+    }
+    wizard.step = Math.min(wizard.step + 1, 3);
+    render();
+  });
+
+  document.getElementById('wiz-back')?.addEventListener('click', () => {
+    captureWizardFields();
+    wizard.step = Math.max(1, wizard.step - 1);
+    render();
+  });
+
+  document.getElementById('wiz-skip')?.addEventListener('click', () => {
+    captureWizardFields();
+    wizard.person = { name: '', role: '', hours: '32' };
+    wizard.step = 3;
+    render();
+  });
+
+  document.getElementById('wiz-add-person')?.addEventListener('click', () => {
+    captureWizardFields();
+    const person = wizard.person;
+    if (!person.name.trim()) {
+      document.getElementById('wiz-person-name')?.focus();
+      return;
+    }
+    wizard.people.push({
+      name: person.name.trim(),
+      role: person.role.trim(),
+      hours: Number(person.hours) || 32,
+    });
+    wizard.person = { name: '', role: '', hours: '32' };
+    render();
+    document.getElementById('wiz-person-name')?.focus();
+  });
+
+  document.querySelectorAll('[data-remove-person]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      captureWizardFields();
+      wizard.people.splice(Number(btn.dataset.removePerson), 1);
+      render();
+    });
+  });
+
+  document.getElementById('wiz-create')?.addEventListener('click', (e) => {
+    guard(() => createPlanFromWizard(e.currentTarget));
+  });
+
+  document.getElementById('wiz-cancel')?.addEventListener('click', closeWizard);
+}
+
+/* ── Shared event helpers ─────────────────────────────────────────────── */
+
+/** Runs an async handler, surfacing failures as a toast instead of a crash.
+ *  fn is invoked synchronously so handlers can still read event.currentTarget,
+ *  which the browser nulls out once dispatch finishes. */
+function guard(fn) {
+  const onError = (err) => {
+    console.error(err);
+    toast(err.message || 'Something went wrong', 'error');
+  };
+  try {
+    return Promise.resolve(fn()).catch(onError);
+  } catch (err) {
+    onError(err);
+    return Promise.resolve();
+  }
+}
+
+function wireContextEvents() {
+  document.getElementById('ctx-cycle')?.addEventListener('change', (e) => {
+    guard(async () => {
+      await flushPendingEdits();
+      state.activeCycleId = e.target.value || null;
+      state.activeScenarioId = null;
+      localStorage.removeItem(SCENARIO_KEY);
+      await loadCoreData();
+      await loadForRoute(currentRoute());
+      render();
+    });
+  });
+
+  const switchWorkspace = (workspaceId) =>
+    guard(async () => {
+      if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
+      await flushPendingEdits();
+      state.activeWorkspaceId = workspaceId;
+      state.activeCycleId = null;
+      state.activeScenarioId = null;
+      state.capacity = null;
+      localStorage.removeItem(SCENARIO_KEY);
+      persistWorkspace();
+      await loadCoreData();
+      await loadForRoute(currentRoute());
+      render();
+    });
+
+  document.getElementById('ctx-workspace')?.addEventListener('change', (e) =>
+    switchWorkspace(e.target.value),
+  );
+  document.getElementById('plans-workspace')?.addEventListener('change', (e) =>
+    switchWorkspace(e.target.value),
+  );
+}
+
+/* ── Plans view events ────────────────────────────────────────────────── */
+
+function wirePlansEvents() {
+  document.getElementById('new-plan')?.addEventListener('click', openWizard);
+  document.getElementById('new-plan-empty')?.addEventListener('click', openWizard);
+
+  document.querySelectorAll('[data-open-plan]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        state.activeCycleId = btn.dataset.openPlan;
+        state.activeScenarioId = null;
+        localStorage.removeItem(SCENARIO_KEY);
+        await loadCoreData();
+        toast('Plan opened');
+        navigate('planner');
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-delete-plan]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const id = btn.dataset.deletePlan;
+        const cycle = state.cycles.find((c) => c.id === id);
+        const ok = await confirmDialog({
+          title: `Delete "${cycle?.name || 'this plan'}"?`,
+          body: 'Its work items, versions, and gates go with it. This cannot be undone.',
+          confirmLabel: 'Delete plan',
+          danger: true,
+        });
+        if (!ok) return;
+
+        await cyclesApi.delete(state.token, state.activeWorkspaceId, id);
+        state.cycles = state.cycles.filter((c) => c.id !== id);
+        if (state.activeCycleId === id) {
+          state.activeCycleId = state.cycles[0]?.id ?? null;
+          state.activeScenarioId = null;
+          localStorage.removeItem(SCENARIO_KEY);
+        }
+        await loadCoreData();
+        toast('Plan deleted');
+        render();
+      }),
+    );
+  });
+
+  document.getElementById('delete-workspace')?.addEventListener('click', () =>
+    guard(async () => {
+      if (state.workspaces.length <= 1) {
+        toast('You need at least one workspace', 'warn');
+        return;
+      }
+      const workspace = state.workspaces.find((w) => w.id === state.activeWorkspaceId);
+      const ok = await confirmDialog({
+        title: `Delete "${workspace?.name || 'this workspace'}"?`,
+        body: 'Every plan and every person in it will be deleted too. This cannot be undone.',
+        confirmLabel: 'Delete workspace',
+        danger: true,
+      });
+      if (!ok) return;
+
+      await workspacesApi.delete(state.token, state.activeWorkspaceId);
+      localStorage.removeItem(WORKSPACE_KEY);
+      state.activeCycleId = null;
+      state.activeScenarioId = null;
+      await loadWorkspaces();
+      await loadCoreData();
+      toast('Workspace deleted');
+      render();
+    }),
+  );
+}
+
+/* ── Planner events ───────────────────────────────────────────────────── */
+
+function wirePlannerEvents() {
+  const table = document.querySelector('.planner-table');
+  table?.addEventListener('input', markDirty);
+  table?.addEventListener('change', markDirty);
+
+  document.getElementById('save-planner')?.addEventListener('click', (e) =>
+    guard(() => withBusy(e.currentTarget, 'Saving…', () => savePlannerGrid()).then(render)),
+  );
+
+  document.querySelectorAll('[data-toggle-row]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      captureGridEdits();
+      const id = btn.dataset.toggleRow;
+      if (state.expandedRows.has(id)) state.expandedRows.delete(id);
+      else state.expandedRows.add(id);
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-add-gate]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await flushPendingEdits();
+        await dependenciesApi.create(state.token, {
+          cycle_id: state.activeCycleId,
+          to_plan_item_id: btn.dataset.addGate,
+          dep_type: 'input_ready',
+          label: '',
+        });
+        state.expandedRows.add(btn.dataset.addGate);
+        await loadScenarioData();
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-delete-gate]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await flushPendingEdits();
+        await dependenciesApi.delete(state.token, btn.dataset.deleteGate);
+        await loadScenarioData();
+        toast('Gate removed');
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-delete-item]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const id = btn.dataset.deleteItem;
+        const item = state.planItems.find((p) => p.id === id);
+        const ok = await confirmDialog({
+          title: 'Delete this row?',
+          body: `"${escapeHtml(item?.title || 'Untitled')}" and any gates on it will be removed.`,
+          confirmLabel: 'Delete row',
+          danger: true,
+        });
+        if (!ok) return;
+        await flushPendingEdits();
+        await planItemsApi.delete(state.token, id);
+        state.expandedRows.delete(id);
+        await loadScenarioData();
+        toast('Row deleted');
+        render();
+      }),
+    );
+  });
+
+  document.getElementById('add-plan-item')?.addEventListener('click', (e) =>
+    guard(async () => {
+      const title = document.getElementById('new-item-title')?.value?.trim();
+      if (!title) {
+        document.getElementById('new-item-title')?.focus();
+        toast('Give the row a name first', 'warn');
+        return;
+      }
+      await withBusy(e.currentTarget, 'Adding…', async () => {
+        await flushPendingEdits();
+        await planItemsApi.create(state.token, {
+          cycle_id: state.activeCycleId,
+          scenario_id: state.activeScenarioId,
+          title,
+          work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
+          due_week: document.getElementById('new-item-due')?.value || null,
+          attributes: { task_type: document.getElementById('new-item-type')?.value || 'general' },
+        });
+        await loadScenarioData();
+        render();
+        document.getElementById('new-item-title')?.focus();
+      });
+    }),
+  );
+
+  const switchScenario = (mode) =>
+    guard(async () => {
+      await flushPendingEdits();
+      if (mode === 'live') {
+        const live = state.scenarios.find((s) => s.status === 'active');
+        if (!live) {
+          toast('No live plan yet — mark a draft as live first', 'warn');
+          return;
+        }
+        state.activeScenarioId = live.id;
+      } else {
+        const draft = state.scenarios.find((s) => s.status !== 'active');
+        if (!draft) {
+          toast('No drafts yet — create one with "New draft"', 'warn');
+          return;
+        }
+        state.activeScenarioId = draft.id;
+      }
+      localStorage.setItem(SCENARIO_KEY, state.activeScenarioId);
+      await loadScenarioData();
+      render();
+    });
+
+  document.getElementById('mode-draft')?.addEventListener('click', () => switchScenario('draft'));
+  document.getElementById('mode-live')?.addEventListener('click', () => switchScenario('live'));
+
+  document.getElementById('scenario-select')?.addEventListener('change', (e) =>
+    guard(async () => {
+      await flushPendingEdits();
+      state.activeScenarioId = e.target.value || null;
+      if (state.activeScenarioId) localStorage.setItem(SCENARIO_KEY, state.activeScenarioId);
+      await loadScenarioData();
+      render();
+    }),
+  );
+
+  document.getElementById('create-scenario')?.addEventListener('click', () =>
+    guard(async () => {
+      const result = await promptDialog({
+        title: 'New draft',
+        body: 'A draft is a scratch copy of this plan. Nothing in it counts until you make it live.',
+        label: 'Draft name',
+        placeholder: 'e.g. What if we hire two more',
+        confirmLabel: 'Create draft',
+        checkbox: state.activeScenarioId
+          ? { label: 'Start from a copy of the current rows', checked: true }
+          : null,
+      });
+      if (!result) return;
+
+      await flushPendingEdits();
+      const { scenario } = await scenariosApi.create(state.token, {
+        cycle_id: state.activeCycleId,
+        name: result.value,
+        status: 'draft',
+        clone_from_scenario_id: result.checked ? state.activeScenarioId : undefined,
+      });
+      state.activeScenarioId = scenario.id;
+      localStorage.setItem(SCENARIO_KEY, scenario.id);
+      await loadScenarioData();
+      toast(`Draft "${scenario.name}" created`);
+      render();
+    }),
+  );
+
+  document.getElementById('finalize-scenario')?.addEventListener('click', () =>
+    guard(async () => {
+      const ok = await confirmDialog({
+        title: 'Make this the live plan?',
+        body: 'This becomes the version everyone works from.',
+        confirmLabel: 'Make it live',
+      });
+      if (!ok) return;
+      await flushPendingEdits();
+      await scenariosApi.patch(state.token, { id: state.activeScenarioId, status: 'active' });
+      await loadScenarioData();
+      toast('This is now the live plan');
+      render();
+    }),
+  );
+
+  document.getElementById('delete-scenario')?.addEventListener('click', () =>
+    guard(async () => {
+      if (state.scenarios.length <= 1) return;
+      const scenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
+      const ok = await confirmDialog({
+        title: `Delete "${scenario?.name || 'this version'}"?`,
+        body: 'Its rows and gates go with it. This cannot be undone.',
+        confirmLabel: 'Delete version',
+        danger: true,
+      });
+      if (!ok) return;
+
+      await scenariosApi.delete(state.token, state.activeScenarioId);
+      state.scenarios = state.scenarios.filter((s) => s.id !== state.activeScenarioId);
+      const next = state.scenarios.find((s) => s.status === 'active') || state.scenarios[0];
+      state.activeScenarioId = next?.id ?? null;
+      if (state.activeScenarioId) localStorage.setItem(SCENARIO_KEY, state.activeScenarioId);
+      else localStorage.removeItem(SCENARIO_KEY);
+      await loadScenarioData();
+      toast('Version deleted');
+      render();
+    }),
+  );
+
+  document.getElementById('preview-import')?.addEventListener('click', () =>
+    guard(async () => {
+      const csv_text = document.getElementById('import-csv')?.value;
+      if (!csv_text?.trim()) {
+        toast('Paste some CSV first', 'warn');
+        return;
+      }
+      state.importPreview = await importApi.preview(state.token, {
+        cycle_id: state.activeCycleId,
+        scenario_id: state.activeScenarioId,
+        csv_text,
+      });
+      render();
+    }),
+  );
+
+  document.getElementById('confirm-import')?.addEventListener('click', () =>
+    guard(async () => {
+      const csv_text = document.getElementById('import-csv')?.value;
+      if (!csv_text) return;
+      await importApi.commit(state.token, {
+        cycle_id: state.activeCycleId,
+        scenario_id: state.activeScenarioId,
+        csv_text,
+      });
+      state.importPreview = null;
+      await loadScenarioData();
+      toast('Rows imported');
+      render();
+    }),
+  );
+
+  document.getElementById('cancel-import')?.addEventListener('click', () => {
+    state.importPreview = null;
+    render();
+  });
+
+  document.getElementById('export-plan')?.addEventListener('click', () =>
+    guard(() => downloadExport('plan')),
+  );
+
+  document.getElementById('check-drift')?.addEventListener('click', () =>
+    guard(async () => {
+      const data = await exportApi.drift(state.token, {
+        cycle: state.activeCycleId,
+        scenario: state.activeScenarioId,
+      });
+      toast(
+        `Since your last import: ${data.added} added, ${data.modified} changed, ${data.removed} removed`,
+        'ok',
+        5000,
+      );
+    }),
+  );
+}
+
+/* ── Capacity events ──────────────────────────────────────────────────── */
+
+function wireCapacityEvents() {
+  document.querySelectorAll('.pill-tab[data-team]').forEach((tab) => {
+    tab.addEventListener('click', () =>
+      guard(async () => {
+        state.activeTeamFilter = tab.dataset.team || '';
+        await loadCapacity();
+        render();
+      }),
+    );
+  });
+
+  document.getElementById('cap-mode')?.addEventListener('change', (e) =>
+    guard(async () => {
+      await loadCapacity(e.target.value);
+      render();
+    }),
+  );
+
+  document.getElementById('cap-granularity-week')?.addEventListener('click', () =>
+    guard(async () => {
+      await loadCapacity(null, 'week');
+      render();
+    }),
+  );
+
+  document.getElementById('cap-granularity-month')?.addEventListener('click', () =>
+    guard(async () => {
+      await loadCapacity(null, 'month');
+      render();
+    }),
+  );
+
+  document.getElementById('refresh-capacity')?.addEventListener('click', (e) =>
+    guard(() =>
+      withBusy(e.currentTarget, 'Refreshing…', async () => {
+        await loadCapacity();
+        render();
+      }),
+    ),
+  );
+
+  document.getElementById('export-capacity')?.addEventListener('click', () =>
+    guard(() => downloadExport('capacity')),
+  );
+}
+
+/* ── Team events ──────────────────────────────────────────────────────── */
+
+function wireTeamEvents() {
+  const table = document.querySelector('.table');
+  table?.addEventListener('input', markTeamDirty);
+  table?.addEventListener('change', markTeamDirty);
+
+  document.getElementById('save-team')?.addEventListener('click', (e) =>
+    guard(() => withBusy(e.currentTarget, 'Saving…', saveTeam).then(render)),
+  );
+
+  document.getElementById('add-resource')?.addEventListener('click', (e) =>
+    guard(async () => {
+      const name = document.getElementById('new-resource-name')?.value?.trim();
+      if (!name) {
+        document.getElementById('new-resource-name')?.focus();
+        toast('Give the person a name first', 'warn');
+        return;
+      }
+      await withBusy(e.currentTarget, 'Adding…', async () => {
+        captureTeamEdits();
+        if (state.teamDirty) await saveTeam();
+        await resourcesApi.create(state.token, state.activeWorkspaceId, {
+          name,
+          team: document.getElementById('new-resource-team')?.value?.trim() || null,
+          weekly_hours: Number(document.getElementById('new-resource-hours')?.value || 32),
+        });
+        await loadCoreData();
+        render();
+        document.getElementById('new-resource-name')?.focus();
+      });
+    }),
+  );
+
+  document.querySelectorAll('[data-delete-resource]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const id = btn.dataset.deleteResource;
+        const resource = state.resources.find((r) => r.id === id);
+        const ok = await confirmDialog({
+          title: `Remove ${resource?.name || 'this person'}?`,
+          body: 'Their time off goes too, and they disappear from the capacity grid.',
+          confirmLabel: 'Remove',
+          danger: true,
+        });
+        if (!ok) return;
+        await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
+        state.teamDirty = false;
+        await loadCoreData();
+        toast('Person removed');
+        render();
+      }),
+    );
+  });
+
+  document.getElementById('add-pto')?.addEventListener('click', (e) =>
+    guard(async () => {
+      const start = document.getElementById('pto-start')?.value;
+      const end = document.getElementById('pto-end')?.value;
+      if (!start || !end) {
+        toast('Pick both a start and an end date', 'warn');
+        return;
+      }
+      if (end < start) {
+        toast('The end date is before the start date', 'warn');
+        return;
+      }
+      await withBusy(e.currentTarget, 'Saving…', async () => {
+        await timeOffApi.create(state.token, state.activeWorkspaceId, {
+          resource_id: document.getElementById('pto-resource')?.value,
+          start_date: start,
+          end_date: end,
+          hours_per_day: document.getElementById('pto-hours')?.value || null,
+          reason: 'PTO',
+        });
+        await loadCoreData();
+        toast('Time off booked');
+        render();
+      });
+    }),
+  );
+
+  document.querySelectorAll('[data-delete-pto]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await timeOffApi.delete(state.token, btn.dataset.deletePto);
+        await loadCoreData();
+        toast('Time off removed');
+        render();
+      }),
+    );
+  });
+}
+
+/* ── Rules events ─────────────────────────────────────────────────────── */
+
+function wireRulesEvents() {
+  document.getElementById('save-policy')?.addEventListener('click', (e) =>
+    guard(() =>
+      withBusy(e.currentTarget, 'Saving…', async () => {
+        await savePolicy({});
+        toast('Rules saved');
+        render();
+      }),
+    ),
+  );
+
+  document.querySelectorAll('[data-granularity]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await savePolicy({ tracking_granularity: btn.dataset.granularity });
+        state.capacityGranularity = btn.dataset.granularity === 'day' ? 'week' : btn.dataset.granularity;
+        toast(`Now tracking by ${btn.dataset.granularity}`);
+        render();
+      }),
+    );
+  });
+}
+
+async function savePolicy(overrides) {
+  if (!state.activeCycleId) return;
+  const existing = state.policy?.config || {};
+  const num = (id, fallback) => {
+    const el = document.getElementById(id);
+    if (!el) return fallback;
+    const value = Number(el.value);
+    return Number.isFinite(value) ? value : fallback;
+  };
+
+  const config = {
+    ...existing,
+    weekly_capacity_default: num('policy-weekly', existing.weekly_capacity_default ?? 32),
+    review_ratio: num('policy-review', existing.review_ratio ?? 0.35),
+    overload_threshold: num('policy-threshold', existing.overload_threshold ?? 1),
+    alert_proximity_days: num('policy-proximity', existing.alert_proximity_days ?? 14),
+    band_yellow_remaining: num('policy-yellow', existing.band_yellow_remaining ?? 8),
+    review_floor_hours: num('policy-review-floor', existing.review_floor_hours ?? 0),
+    ...overrides,
+  };
+
+  const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
+  state.policy = policy;
+}
+
+/* ── Export ───────────────────────────────────────────────────────────── */
+
 async function downloadExport(type) {
   const url = exportApi.downloadUrl({
     type,
@@ -965,606 +1172,113 @@ async function downloadExport(type) {
   a.download = `${type}-export.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
+  toast('CSV downloaded');
 }
 
-function wireCycleScenarioEvents() {
-  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
-    state.activeCycleId = e.target.value || null;
-    state.activeScenarioId = null;
-    await refreshView();
-  });
+/* ── Render ───────────────────────────────────────────────────────────── */
 
-  document.getElementById('scenario-select')?.addEventListener('change', async (e) => {
-    state.activeScenarioId = e.target.value || null;
-    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
-    await loadScenarioData();
-    if (currentRoute() === 'capacity') {
-      await loadCapacity(
-        document.getElementById('cap-mode')?.value || 'due',
-        state.capacityGranularity,
-      );
-    }
-    render();
-  });
-}
-
-function wireWorkspaceEvents() {
-  const onSwitch = async (workspaceId) => {
-    if (!workspaceId || workspaceId === state.activeWorkspaceId) return;
-    state.activeWorkspaceId = workspaceId;
-    state.activeCycleId = null;
-    state.activeScenarioId = null;
-    state.capacity = null;
-    persistActiveWorkspace();
-    await refreshView();
-  };
-
-  document.getElementById('workspace-select')?.addEventListener('change', (e) => onSwitch(e.target.value));
-  document.getElementById('workspace-select-settings')?.addEventListener('change', (e) => onSwitch(e.target.value));
-}
-
-function wireSettingsEvents() {
-  wireWorkspaceEvents();
-
-  const setupForm = document.getElementById('setup-plan-form');
-  setupForm?.addEventListener('input', (e) => syncSetupDraftField(e.target));
-  setupForm?.addEventListener('change', (e) => syncSetupDraftField(e.target));
-
-  document.getElementById('setup-plan-form')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    try {
-      await submitSetupPlan();
-    } catch (err) {
-      alert(err.message || 'Could not create plan.');
-    }
-  });
-
-  document.querySelectorAll('[data-setup-mode]').forEach((group) => {
-    const kind = group.dataset.setupMode;
-    group.querySelectorAll('.view-toggle-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (btn.disabled) return;
-        captureSetupForm();
-        state.setupUi = state.setupUi || { workspaceMode: null, cycleMode: null };
-        state.setupUi[`${kind}Mode`] = btn.dataset.mode;
-        if (kind === 'workspace' && btn.dataset.mode === 'new') {
-          state.setupUi.cycleMode = 'new';
-        }
-        render();
-      });
-    });
-  });
-
-  document.getElementById('add-to-team-list')?.addEventListener('click', () => {
-    captureSetupForm();
-    const person = collectPersonFromForm();
-    if (!person.name) return;
-    state.setupDraftPeople.push(person);
-    clearPersonForm();
-    render();
-  });
-
-  document.querySelectorAll('.btn-remove-draft').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      captureSetupForm();
-      state.setupDraftPeople.splice(Number(btn.dataset.idx), 1);
-      render();
-    });
-  });
-
-  document.getElementById('delete-workspace')?.addEventListener('click', async () => {
-    if (!state.activeWorkspaceId || state.workspaces.length <= 1) return;
-    const deletedId = state.activeWorkspaceId;
-    await workspacesApi.delete(state.token, deletedId);
-    state.workspaces = state.workspaces.filter((w) => w.id !== deletedId);
-    state.activeWorkspaceId = state.workspaces[0]?.id ?? null;
-    state.activeCycleId = null;
-    state.activeScenarioId = null;
-    if (!state.activeWorkspaceId) localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-    else persistActiveWorkspace();
-    await loadCoreData();
-    render();
-  });
-
-  document.getElementById('delete-cycle')?.addEventListener('click', async () => {
-    if (!state.activeWorkspaceId || !state.activeCycleId) return;
-    const deletedId = state.activeCycleId;
-    await cyclesApi.delete(state.token, state.activeWorkspaceId, deletedId);
-    state.cycles = state.cycles.filter((c) => c.id !== deletedId);
-    state.activeCycleId = state.cycles[0]?.id ?? null;
-    state.activeScenarioId = null;
-    if (state.activeCycleId) {
-      const { policy } = await policyApi.get(state.token, state.activeCycleId);
-      state.policy = policy;
-      await loadScenarioData();
-    } else {
-      state.policy = null;
-      state.planItems = [];
-      state.scenarios = [];
-    }
-    render();
-  });
-
-  document.getElementById('cycle-select')?.addEventListener('change', async (e) => {
-    state.activeCycleId = e.target.value || null;
-    state.activeScenarioId = null;
-    await loadCoreData();
-    render();
-  });
-
-  document.querySelectorAll('.btn-delete-resource').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      captureSetupForm();
-      const row = btn.closest('tr');
-      const id = row?.dataset?.id;
-      if (!id) return;
-      await resourcesApi.delete(state.token, state.activeWorkspaceId, id);
-      state.resources = state.resources.filter((r) => r.id !== id);
-      render();
-    });
-  });
-}
-
-function wirePreferencesEvents() {
-  wireWorkspaceEvents();
-
-  document.getElementById('save-policy')?.addEventListener('click', async () => {
-    if (!state.activeCycleId) return;
-    const config = {
-      weekly_capacity_default: Number(document.getElementById('policy-weekly').value),
-      review_ratio: Number(document.getElementById('policy-review').value),
-      overload_threshold: Number(document.getElementById('policy-threshold').value),
-      alert_proximity_days: Number(document.getElementById('policy-proximity').value),
-      band_yellow_remaining: Number(document.getElementById('policy-yellow').value),
-      review_floor_hours: Number(document.getElementById('policy-review-floor').value),
-      spread_lag_weeks: state.policy?.config?.spread_lag_weeks ?? 0,
-      working_days_per_week: state.policy?.config?.working_days_per_week ?? 5,
-      band_red_remaining: state.policy?.config?.band_red_remaining ?? 0,
-      review_lag_days: state.policy?.config?.review_lag_days ?? 7,
-    };
-    const { policy } = await policyApi.update(state.token, state.activeCycleId, config);
-    state.policy = policy;
-    render();
-  });
-
-  document.getElementById('add-pto')?.addEventListener('click', async () => {
-    if (!state.activeWorkspaceId) return;
-    const start = document.getElementById('pto-start')?.value;
-    const end = document.getElementById('pto-end')?.value;
-    if (!start || !end) return;
-    const resourceId = document.getElementById('pto-resource')?.value;
-    const created = await timeOffApi.create(state.token, state.activeWorkspaceId, {
-      resource_id: resourceId,
-      start_date: start,
-      end_date: end,
-      hours_per_day: document.getElementById('pto-hours')?.value || null,
-      reason: 'PTO',
-    });
-    const entry = created.time_off;
-    if (!entry) return;
-    state.resources = state.resources.map((r) =>
-      r.id === resourceId
-        ? { ...r, time_off: [...(r.time_off || []), entry] }
-        : r,
-    );
-    render();
-  });
-
-  document.querySelectorAll('.btn-del-pto').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const ptoId = btn.dataset.id;
-      if (!ptoId) return;
-      await timeOffApi.delete(state.token, ptoId);
-      state.resources = state.resources.map((r) => ({
-        ...r,
-        time_off: (r.time_off || []).filter((t) => t.id !== ptoId),
-      }));
-      render();
-    });
-  });
-}
-
-function wirePlannerEvents() {
-  wireWorkspaceEvents();
-  wireCycleScenarioEvents();
-
-  async function switchScenarioMode(mode) {
-    if (!state.scenarios.length) return;
-    if (mode === 'live') {
-      const live = state.scenarios.find((s) => s.status === 'active');
-      if (live) state.activeScenarioId = live.id;
-    } else {
-      const draft = state.scenarios.find((s) => s.status === 'draft') || state.scenarios[0];
-      state.activeScenarioId = draft.id;
-    }
-    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
-    await loadScenarioData();
-    render();
-  }
-
-  document.getElementById('mode-draft')?.addEventListener('click', () => switchScenarioMode('draft'));
-  document.getElementById('mode-live')?.addEventListener('click', () => switchScenarioMode('live'));
-
-  document.getElementById('delete-scenario')?.addEventListener('click', async () => {
-    if (!state.activeScenarioId || state.scenarios.length <= 1) return;
-    const deletedId = state.activeScenarioId;
-    await scenariosApi.delete(state.token, deletedId);
-    state.scenarios = state.scenarios.filter((s) => s.id !== deletedId);
-    const next = state.scenarios.find((s) => s.status === 'active') || state.scenarios[0];
-    state.activeScenarioId = next?.id ?? null;
-    if (state.activeScenarioId) localStorage.setItem(SCENARIO_STORAGE_KEY, state.activeScenarioId);
-    else localStorage.removeItem(SCENARIO_STORAGE_KEY);
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('finalize-scenario')?.addEventListener('click', async () => {
-    if (!state.activeScenarioId) return;
-    await scenariosApi.patch(state.token, { id: state.activeScenarioId, status: 'active' });
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('add-plan-item')?.addEventListener('click', async () => {
-    if (!state.activeCycleId || !state.activeScenarioId) return;
-    const title = document.getElementById('new-item-title')?.value?.trim();
-    if (!title) return;
-    const days = document.getElementById('new-item-days')?.value;
-    const taskType = document.getElementById('new-item-type')?.value || 'general';
-    const attributes = { task_type: taskType };
-    if (days) attributes.duration_days = Number(days);
-    await planItemsApi.create(state.token, {
-      cycle_id: state.activeCycleId,
-      scenario_id: state.activeScenarioId,
-      title,
-      work_hours: Number(document.getElementById('new-item-hours')?.value || 0),
-      due_week: document.getElementById('new-item-due')?.value || null,
-      attributes,
-    });
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('save-planner')?.addEventListener('click', async () => {
-    await savePlannerGrid();
-  });
-
-  document.querySelectorAll('.planner-row').forEach((row) => {
-    row.querySelector('.btn-delete-item')?.addEventListener('click', async () => {
-      const id = row.dataset.id;
-      if (!id) return;
-      await planItemsApi.delete(state.token, id);
-      state.planItems = state.planItems.filter((item) => item.id !== id);
-      state.dependencies = state.dependencies.filter(
-        (d) => d.from_plan_item_id !== id && d.to_plan_item_id !== id,
-      );
-      render();
-    });
-    row.querySelector('.btn-delete-dep')?.addEventListener('click', async () => {
-      const id = row.dataset.depId;
-      if (!id) return;
-      await dependenciesApi.delete(state.token, id);
-      state.dependencies = state.dependencies.filter((d) => d.id !== id);
-      render();
-    });
-    row.querySelector('.btn-add-gate')?.addEventListener('click', async () => {
-      const toId = row.dataset.id;
-      if (!toId || !state.activeCycleId) return;
-      await dependenciesApi.create(state.token, {
-        cycle_id: state.activeCycleId,
-        to_plan_item_id: toId,
-        dep_type: 'input_ready',
-        label: 'New gate',
-      });
-      await loadScenarioData();
-      render();
-    });
-  });
-
-  document.querySelectorAll('.planner-subrow .btn-delete-dep').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.closest('tr')?.dataset?.depId;
-      if (!id) return;
-      await dependenciesApi.delete(state.token, id);
-      state.dependencies = state.dependencies.filter((d) => d.id !== id);
-      render();
-    });
-  });
-
-  document.getElementById('create-scenario')?.addEventListener('click', async () => {
-    const name = prompt('Draft name (e.g. What-if v2):');
-    if (!name || !state.activeCycleId) return;
-    const clone = state.activeScenarioId ? confirm('Copy rows from current view?') : false;
-    const { scenario } = await scenariosApi.create(state.token, {
-      cycle_id: state.activeCycleId,
-      name,
-      status: 'draft',
-      clone_from_scenario_id: clone ? state.activeScenarioId : undefined,
-    });
-    state.activeScenarioId = scenario.id;
-    localStorage.setItem(SCENARIO_STORAGE_KEY, scenario.id);
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('preview-import')?.addEventListener('click', async () => {
-    const csv_text = document.getElementById('import-csv')?.value;
-    if (!csv_text || !state.activeCycleId || !state.activeScenarioId) return;
-    state.importPreview = await importApi.preview(state.token, {
-      cycle_id: state.activeCycleId,
-      scenario_id: state.activeScenarioId,
-      csv_text,
-    });
-    render();
-  });
-
-  document.getElementById('confirm-import')?.addEventListener('click', async () => {
-    const csv_text = document.getElementById('import-csv')?.value;
-    if (!csv_text) return;
-    await importApi.commit(state.token, {
-      cycle_id: state.activeCycleId,
-      scenario_id: state.activeScenarioId,
-      csv_text,
-    });
-    state.importPreview = null;
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('cancel-import')?.addEventListener('click', () => {
-    state.importPreview = null;
-    render();
-  });
-
-  document.getElementById('export-plan')?.addEventListener('click', async () => {
-    try {
-      await downloadExport('plan');
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById('check-drift')?.addEventListener('click', async () => {
-    const data = await exportApi.drift(state.token, {
-      cycle: state.activeCycleId,
-      scenario: state.activeScenarioId,
-    });
-    state.drift = data;
-    alert(`Drift vs last import: +${data.added} / ~${data.modified} / -${data.removed}`);
-  });
-}
-
-async function savePlannerGrid() {
-  const plan_items = [];
-  const depCreates = [];
-  const depPatches = [];
-
-  for (const row of document.querySelectorAll('.planner-row')) {
-    const id = row.dataset.id;
-    if (!id) continue;
-    const attrs = {};
-    const days = row.querySelector('[data-field="duration_days"]')?.value;
-    const start = row.querySelector('[data-field="start_date"]')?.value;
-    const taskType = row.querySelector('[data-field="task_type"]')?.value;
-    if (days) attrs.duration_days = Number(days);
-    if (start) attrs.start_date = start;
-    if (taskType) attrs.task_type = taskType;
-
-    plan_items.push({
-      id,
-      title: row.querySelector('[data-field="title"]')?.value,
-      phase: row.querySelector('[data-field="phase"]')?.value || null,
-      work_hours: Number(row.querySelector('[data-field="work_hours"]')?.value || 0),
-      due_week: row.querySelector('[data-field="due_week"]')?.value || null,
-      attributes: attrs,
-    });
-
-    const depPayload = readDepFields(row);
-    if (depPayload) {
-      if (row.dataset.depId) {
-        depPatches.push({ id: row.dataset.depId, ...depPayload });
-      } else {
-        depCreates.push({ to_plan_item_id: id, ...depPayload });
-      }
-    }
-  }
-
-  for (const row of document.querySelectorAll('.planner-subrow')) {
-    const depPayload = readDepFields(row);
-    if (!depPayload || !row.dataset.depId) continue;
-    depPatches.push({ id: row.dataset.depId, ...depPayload });
-  }
-
-  if (plan_items.length) await planItemsApi.patch(state.token, plan_items);
-  for (const dep of depCreates) {
-    await dependenciesApi.create(state.token, {
-      cycle_id: state.activeCycleId,
-      to_plan_item_id: dep.to_plan_item_id,
-      from_plan_item_id: dep.from_plan_item_id,
-      dep_type: dep.dep_type,
-      label: dep.label,
-      status: dep.status,
-      meta: dep.meta,
-    });
-  }
-  if (depPatches.length) await dependenciesApi.patch(state.token, depPatches);
-
-  await loadScenarioData();
-  render();
-}
-
-function readDepFields(row) {
-  const label = row.querySelector('[data-field="label"]')?.value?.trim();
-  const fromId = row.querySelector('[data-field="from_plan_item_id"]')?.value || null;
-  const depDue = row.querySelector('[data-field="dep_due"]')?.value || null;
-  const depType = row.querySelector('[data-field="dep_type"]')?.value || 'input_ready';
-  const status = row.querySelector('[data-field="dep_status"]')?.value || 'open';
-  if (!label && !fromId && !depDue) return null;
-  return {
-    from_plan_item_id: fromId,
-    dep_type: depType,
-    label: label || null,
-    status,
-    meta: depDue ? { due_date: depDue } : {},
-  };
-}
-
-function wireAlertsEvents() {
-  wireWorkspaceEvents();
-  wireCycleScenarioEvents();
-  document.getElementById('refresh-alerts')?.addEventListener('click', async () => {
-    await loadAlerts();
-    render();
-  });
-}
-
-function renderAlerts() {
-  return renderShell({
-    activeNav: 'alerts',
-    body: renderAlertsView({
-      state,
-      escapeHtml,
-      cycleOptions,
-      scenarioOptionsHtml: scenarioOptions(state.scenarios, state.activeScenarioId),
-    }),
-  });
-}
-
-function wireDependencyEvents() {
-  wireWorkspaceEvents();
-  wireCycleScenarioEvents();
-
-  document.getElementById('add-dependency')?.addEventListener('click', async () => {
-    if (!state.activeCycleId) return;
-    const toId = document.getElementById('new-dep-to')?.value;
-    if (!toId) return;
-    const fromId = document.getElementById('new-dep-from')?.value || null;
-    await dependenciesApi.create(state.token, {
-      cycle_id: state.activeCycleId,
-      to_plan_item_id: toId,
-      from_plan_item_id: fromId,
-      dep_type: document.getElementById('new-dep-type')?.value,
-      label: document.getElementById('new-dep-label')?.value?.trim() || null,
-    });
-    await loadScenarioData();
-    render();
-  });
-
-  document.getElementById('save-dependencies')?.addEventListener('click', async () => {
-    const rows = [...document.querySelectorAll('#dependencies-table tbody tr[data-id]')];
-    const dependencies = rows.map((row) => ({
-      id: row.dataset.id,
-      status: row.querySelector('[data-field="status"]')?.value,
-    }));
-    await dependenciesApi.patch(state.token, dependencies);
-    await loadScenarioData();
-    render();
-  });
-
-  document.querySelectorAll('.btn-delete-dep').forEach((btn) => {
-    btn.addEventListener('click', async (e) => {
-      const id = e.target.closest('tr')?.dataset?.id;
-      if (!id) return;
-      await dependenciesApi.delete(state.token, id);
-      await loadScenarioData();
-      render();
-    });
-  });
-}
-
-function wireCapacityEvents() {
-  wireWorkspaceEvents();
-  wireCycleScenarioEvents();
-
-  document.querySelectorAll('.team-tab').forEach((tab) => {
-    tab.addEventListener('click', async () => {
-      state.activeTeamFilter = tab.dataset.team || '';
-      const mode = document.getElementById('cap-mode')?.value || 'due';
-      await loadCapacity(mode, state.capacityGranularity);
-      render();
-    });
-  });
-
-  document.getElementById('export-capacity')?.addEventListener('click', async () => {
-    try {
-      await downloadExport('capacity');
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById('cap-mode')?.addEventListener('change', async (e) => {
-    await loadCapacity(e.target.value, state.capacityGranularity);
-    render();
-  });
-  document.getElementById('cap-granularity-week')?.addEventListener('click', async () => {
-    const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode, 'week');
-    render();
-  });
-  document.getElementById('cap-granularity-month')?.addEventListener('click', async () => {
-    const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode, 'month');
-    render();
-  });
-  document.getElementById('refresh-capacity')?.addEventListener('click', async () => {
-    const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode, state.capacityGranularity);
-    render();
-  });
-}
-
-async function refreshView() {
-  await loadCoreData();
-  const route = currentRoute();
-  if (route === 'capacity') {
-    const mode = document.getElementById('cap-mode')?.value || 'due';
-    await loadCapacity(mode, state.capacityGranularity);
-  }
-  if (route === 'preferences') await loadChangelog();
-  render();
+function renderSignIn(auth) {
+  const loginHref = `/account.html?next=${encodeURIComponent(location.pathname || APP_PATH)}`;
+  return `
+    <div class="signin-wrap">
+      <div class="signin">
+        <div class="signin-brand">
+          <img src="./icon.svg" alt="" width="30" height="30" />
+          <h1>One More Column</h1>
+        </div>
+        <p class="page-lead">Capacity planning that doesn't need another spreadsheet.</p>
+        ${auth.needsReauth
+          ? '<div class="notice notice-warn"><strong>Your session expired.</strong> Sign in again to pick up where you left off.</div>'
+          : ''}
+        <p class="page-lead">Use the same account as the rest of inaayat.xyz.</p>
+        <a class="btn btn-primary btn-lg" href="${loginHref}">Sign in</a>
+        <a class="sidebar-link" style="color:var(--muted)" href="/">← beep boop</a>
+      </div>
+    </div>`;
 }
 
 function render() {
   const root = document.getElementById('app-root');
-  const rawRoute = currentRoute();
-  if (rawRoute === 'settings') captureSetupForm();
-  const route = resolveRoute(rawRoute, state);
-  if (route !== rawRoute) {
+  const requested = currentRoute();
+
+  captureAll();
+
+  const { route, redirectedFrom } = resolveRoute(requested, state);
+  if (route !== requested) {
+    state.redirectedFrom = redirectedFrom;
     navigate(route);
     return;
   }
 
-  let html;
-  if (route === 'planner') html = renderPlanner();
-  else if (route === 'capacity') html = renderCapacity();
-  else if (route === 'settings') html = renderSettings();
-  else if (route === 'preferences') html = renderPreferences();
-  else html = renderPlanner();
-  root.innerHTML = html;
-  wireAuthLink(state.auth);
+  const focus = captureFocus();
 
-  if (route === 'settings') {
-    wireSettingsEvents();
-  } else if (route === 'preferences') {
-    wirePreferencesEvents();
-  } else if (route === 'planner') wirePlannerEvents();
+  // The wizard takes over the Plans page when there is nothing to list, so the
+  // first thing a new user sees is the thing they came to do.
+  const showWizard = route === 'plans' && (state.wizard.open || !state.cycles.length);
+  if (showWizard) state.wizard.open = true;
+
+  let body;
+  if (route === 'plans') {
+    body = showWizard
+      ? renderWizard({ state })
+      : renderPlansView({ state, redirectedFrom: state.redirectedFrom });
+  } else if (route === 'planner') body = renderPlannerView({ state });
+  else if (route === 'capacity') body = renderCapacityView({ state });
+  else if (route === 'alerts') body = renderAlertsView({ state });
+  else if (route === 'team') body = renderTeamView({ state });
+  else if (route === 'rules') body = renderRulesView({ state });
+  else body = renderGuideView({ state });
+
+  root.innerHTML = renderShell({
+    body,
+    activeRoute: route,
+    navItems: navItems(state),
+    context: renderContext({
+      state,
+      planOptions: planOptions(state.cycles, state.activeCycleId),
+      workspaceOptions: workspaceOptions(state.workspaces, state.activeWorkspaceId),
+      showSwitchers: !showWizard,
+    }),
+    user: state.me?.user || state.auth?.user || {},
+    narrow: route === 'guide' || showWizard,
+  });
+
+  wireAuthLink(state.auth);
+  wireContextEvents();
+
+  if (route === 'plans' && showWizard) wireWizardEvents();
+  else if (route === 'plans') wirePlansEvents();
+  else if (route === 'planner') wirePlannerEvents();
   else if (route === 'capacity') wireCapacityEvents();
-  else wireWorkspaceEvents();
+  else if (route === 'team') wireTeamEvents();
+  else if (route === 'rules') wireRulesEvents();
+  else if (route === 'alerts') {
+    document.getElementById('refresh-alerts')?.addEventListener('click', (e) =>
+      guard(() =>
+        withBusy(e.currentTarget, 'Refreshing…', async () => {
+          await loadAlerts();
+          render();
+        }),
+      ),
+    );
+  }
+
+  restoreFocus(focus);
+  state.redirectedFrom = null;
 }
+
+/* ── Boot ─────────────────────────────────────────────────────────────── */
 
 async function boot() {
   const root = document.getElementById('app-root');
   const auth = await initAuth();
   state.auth = auth;
 
-  if (auth.configured && auth.user && !auth.token) {
-    await refreshToken(auth);
-  }
+  if (auth.configured && auth.user && !auth.token) await refreshToken(auth);
 
   try {
     if (!auth.signedIn || !auth.token) {
-      root.innerHTML = renderSignInPrompt(auth);
+      root.innerHTML = renderSignIn(auth);
       wireAuthLink(auth);
       return;
     }
@@ -1574,34 +1288,50 @@ async function boot() {
     await loadWorkspaces();
     await loadCoreData();
 
+    // Alerts drive the sidebar badge, so they load once up front.
+    if (state.activeCycleId) await loadAlerts().catch(() => {});
+
     const emptyHash = !location.hash || location.hash === '#/' || location.hash === '#';
     if (emptyHash) {
       location.replace(`#/${getInitialRoute(state)}`);
     } else {
-      const resolved = resolveRoute(currentRoute(), state);
-      if (resolved !== currentRoute()) location.replace(`#/${resolved}`);
+      const { route } = resolveRoute(currentRoute(), state);
+      if (route !== currentRoute()) location.replace(`#/${route}`);
     }
 
-    window.addEventListener('hashchange', async () => {
-      const route = currentRoute();
-      if (route === 'capacity') await loadCapacity('due', state.capacityGranularity);
-      render();
+    window.addEventListener('hashchange', () =>
+      guard(async () => {
+        await loadForRoute(currentRoute());
+        render();
+      }),
+    );
+
+    // Nothing autosaves, so warn before a reload throws away pending edits.
+    window.addEventListener('beforeunload', (e) => {
+      if (!state.isDirty && !state.teamDirty) return;
+      e.preventDefault();
+      e.returnValue = '';
     });
 
-    const route = currentRoute();
-    if (route === 'capacity') await loadCapacity('due', state.capacityGranularity);
+    await loadForRoute(currentRoute());
     render();
   } catch (err) {
     console.error(err);
     if (err.status === 401 && auth.configured) {
       auth.signedIn = false;
       auth.needsReauth = !!auth.user;
-      root.innerHTML = renderSignInPrompt(auth);
+      root.innerHTML = renderSignIn(auth);
       wireAuthLink(auth);
       return;
     }
-    root.innerHTML = `<section class="panel"><p class="omc-error">${escapeHtml(err.message || 'Something went wrong.')}</p></section>`;
-    wireAuthLink(auth);
+    root.innerHTML = `
+      <div class="signin-wrap">
+        <div class="signin">
+          <h1>Something went wrong</h1>
+          <div class="notice notice-error">${escapeHtml(err.message || 'Unknown error')}</div>
+          <a class="btn btn-ghost" href="${APP_PATH}">Reload</a>
+        </div>
+      </div>`;
   }
 }
 

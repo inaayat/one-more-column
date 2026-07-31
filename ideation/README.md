@@ -7,4 +7,7 @@ Phase 0 artifacts — product specification, hosted architecture, Excel config e
 | [CAPACITY_PLANNER_SPECIFICATION.md](./CAPACITY_PLANNER_SPECIFICATION.md) | Part A SOX + Part B flexible platform |
 | [HOSTED_APP_ARCHITECTURE.md](./HOSTED_APP_ARCHITECTURE.md) | inaayat.xyz path proxy + Neon Auth + Postgres |
 | [config.excel.example.json](./config.excel.example.json) | Non-Jira SharePoint embed/edit example |
-| [templates/blank-styling-template.html](./templates/blank-styling-template.html) | Mulish design tokens + layout chrome |
+
+The design template that used to sit here was a byte-identical copy of
+[`../templates/blank-styling-template.html`](../templates/blank-styling-template.html).
+The duplicate has been removed so there is only one place to look.
