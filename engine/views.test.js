@@ -15,7 +15,6 @@ import {
   renderPlansView,
   renderPlannerView,
   renderCapacityView,
-  renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
   renderGuideView,
@@ -51,8 +50,6 @@ const emptyState = {
   readiness: [],
   importPreview: null,
   changelog: [],
-  alerts: [],
-  alertCounts: { high: 0, medium: 0, low: 0 },
   activeTeamFilter: '',
   capacityGranularity: 'week',
   expandedRows: new Set(),
@@ -193,12 +190,6 @@ const fullState = {
     ],
   },
   changelog: [{ created_at: '2026-01-02T10:00:00Z', summary: 'Created plan' }],
-  alerts: [
-    { type: 'overload', severity: 'high', message: 'Overloaded', resource_name: 'x', week: '2026-01-12' },
-    { type: 'due_proximity', severity: 'medium', message: 'Due soon', due_week: '2026-01-12' },
-    { type: 'gate_proximity', severity: 'low', message: 'Gate due' },
-  ],
-  alertCounts: { high: 1, medium: 1, low: 1 },
   expandedRows: new Set(['p1']),
   expandedTaskTypes: new Set(['tt2', 'tt3']),
   isDirty: true,
@@ -210,7 +201,6 @@ const views = {
   plans: (s) => renderPlansView({ state: s, redirectedFrom: 'capacity' }),
   planner: (s) => renderPlannerView({ state: s }),
   capacity: (s) => renderCapacityView({ state: s }),
-  alerts: (s) => renderAlertsView({ state: s }),
   team: (s) => renderTeamView({ state: s }),
   'task-types': (s) => renderTaskTypesView({ state: s }),
   guide: (s) => renderGuideView({ state: s }),
@@ -284,6 +274,7 @@ test('legacy hashes still resolve', () => {
   assert.equal(normalizeRoute('preferences'), 'capacity');
   assert.equal(normalizeRoute('rules'), 'capacity');
   assert.equal(normalizeRoute('dependencies'), 'planner');
+  assert.equal(normalizeRoute('alerts'), 'planner');
   assert.equal(normalizeRoute('nonsense'), 'planner');
 });
 
@@ -347,6 +338,9 @@ test('capacity embeds planning rules as a disclosure, not a separate tab', () =>
   assert.ok(out.includes('Planning rules'));
   assert.ok(out.includes('id="save-policy"'));
   assert.ok(!navItems(fullState).some((n) => n.id === 'rules'), 'Settings tab should be gone');
+  assert.ok(!navItems(fullState).some((n) => n.id === 'alerts'), 'Alerts tab should be archived');
+  assert.ok(out.includes('href="#/planner"'), 'open gates should point at Planner, not Alerts');
+  assert.ok(!out.includes('href="#/alerts"'));
 });
 
 test('user-supplied text is escaped, not executed', () => {

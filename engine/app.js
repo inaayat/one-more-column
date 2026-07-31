@@ -11,7 +11,6 @@ import {
   importApi,
   capacityApi,
   changelogApi,
-  alertsApi,
   exportApi,
   timeOffApi,
   taskTypesApi,
@@ -31,7 +30,6 @@ import {
   renderPlansView,
   renderPlannerView,
   renderCapacityView,
-  renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
   renderGuideView,
@@ -69,8 +67,6 @@ const state = {
   importTaskTypeId: '',
   rulesSectionOpen: false,
   changelog: [],
-  alerts: [],
-  alertCounts: { high: 0, medium: 0, low: 0 },
   activeTeamFilter: '',
   capacityGranularity: 'week',
   /** Set after a server reload so the next render doesn't re-read the old DOM. */
@@ -447,20 +443,6 @@ async function loadCapacity(mode, granularity = state.capacityGranularity) {
   state.capacityGranularity = granularity;
 }
 
-async function loadAlerts() {
-  if (!state.activeCycleId) {
-    state.alerts = [];
-    state.alertCounts = { high: 0, medium: 0, low: 0 };
-    return;
-  }
-  const data = await alertsApi.list(state.token, {
-    cycle: state.activeCycleId,
-    scenario: state.activeScenarioId || undefined,
-  });
-  state.alerts = data.alerts;
-  state.alertCounts = data.counts;
-}
-
 async function loadChangelog() {
   if (!state.activeCycleId) {
     state.changelog = [];
@@ -475,7 +457,6 @@ async function loadForRoute(route) {
   if (route === 'capacity') {
     await Promise.all([loadCapacity(), loadChangelog()]);
   }
-  if (route === 'alerts') await loadAlerts();
 }
 
 /* ── Saving ───────────────────────────────────────────────────────────── */
@@ -1632,9 +1613,8 @@ function render() {
     body = showWizard
       ? renderWizard({ state })
       : renderPlansView({ state, redirectedFrom: state.redirectedFrom });
-  } else if (route === 'planner') body = renderPlannerView({ state });
+  }   else if (route === 'planner') body = renderPlannerView({ state });
   else if (route === 'capacity') body = renderCapacityView({ state });
-  else if (route === 'alerts') body = renderAlertsView({ state });
   else if (route === 'team') body = renderTeamView({ state });
   else if (route === 'task-types') body = renderTaskTypesView({ state });
   else body = renderGuideView({ state });
@@ -1662,16 +1642,6 @@ function render() {
   else if (route === 'capacity') wireCapacityEvents();
   else if (route === 'team') wireTeamEvents();
   else if (route === 'task-types') wireTaskTypesEvents();
-  else if (route === 'alerts') {
-    document.getElementById('refresh-alerts')?.addEventListener('click', (e) =>
-      guard(() =>
-        withBusy(e.currentTarget, 'Refreshing…', async () => {
-          await loadAlerts();
-          render();
-        }),
-      ),
-    );
-  }
 
   restoreFocus(focus);
   state.redirectedFrom = null;
@@ -1697,9 +1667,6 @@ async function boot() {
     state.me = await meApi.get(auth.token);
     await loadWorkspaces();
     await loadCoreData();
-
-    // Alerts drive the sidebar badge, so they load once up front.
-    if (state.activeCycleId) await loadAlerts().catch(() => {});
 
     const emptyHash = !location.hash || location.hash === '#/' || location.hash === '#';
     if (emptyHash) {

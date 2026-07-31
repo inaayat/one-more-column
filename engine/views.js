@@ -47,7 +47,6 @@ function redirectNotice(redirectedFrom) {
   const names = {
     planner: 'Planner',
     capacity: 'Capacity',
-    alerts: 'Alerts',
     team: 'Team',
     'task-types': 'Task types',
   };
@@ -654,7 +653,7 @@ function renderPlanningRulesPanel(state) {
     ['policy-weekly', 'Default hours per week', policy.weekly_capacity_default ?? 32, 1, 'Used for anyone without their own number on the Team page.'],
     ['policy-yellow', 'Amber below (hours left)', policy.band_yellow_remaining ?? 8, 1, 'A cell turns amber once someone has fewer than this many hours spare.'],
     ['policy-threshold', 'Overload at (× capacity)', policy.overload_threshold ?? 1, 0.05, 'Where red starts. 1 means red as soon as planned hours pass available hours.'],
-    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out Alerts looks for upcoming due dates.'],
+    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out upcoming due dates are flagged (reserved for dependency/gate warnings).'],
     ['policy-review', 'Review ratio', policy.review_ratio ?? 0.35, 0.01, 'Extra review effort added on top of each item, as a fraction of its hours.'],
     ['policy-review-floor', 'Minimum review hours', policy.review_floor_hours ?? 0, 0.5, 'Review effort never drops below this, however small the item.'],
   ];
@@ -836,7 +835,7 @@ export function renderCapacityView({ state }) {
       ${openGates.length
         ? `<div class="notice notice-warn" style="margin-bottom:14px">
              <strong>${openGates.length} open gate${openGates.length === 1 ? '' : 's'}</strong> — some of this work can't start yet.
-             <a href="#/alerts">See what's blocking it</a>.
+             <a href="#/planner">Open the Planner to clear or waive gates</a>.
            </div>`
         : ''}
 
@@ -856,86 +855,6 @@ export function renderCapacityView({ state }) {
     </section>
 
     ${rulesPanel}
-  `;
-}
-
-/* ── Alerts ───────────────────────────────────────────────────────────── */
-
-const ALERT_ADVICE = {
-  overload: 'Move some of this work to a later period, or hand it to someone with room.',
-  tight_capacity: 'Still fits, but there is no slack left for anything unplanned.',
-  due_proximity: 'Coming up soon — check it is actually underway.',
-  overdue: 'The due date has passed. Move it out or mark the work done.',
-  readiness_gap: 'Open gates are holding this up. Clear them or waive them in the Planner.',
-  gate_proximity: 'A gate is due soon. Chase whoever owns it.',
-};
-
-export function renderAlertsView({ state }) {
-  const groups = { high: [], medium: [], low: [] };
-  for (const alert of state.alerts || []) {
-    groups[alert.severity]?.push(alert);
-  }
-
-  const head = `
-    <div class="page-bar">
-      <div class="page-head">
-        <p class="eyebrow">Alerts</p>
-        <h1 class="page-title">What needs attention</h1>
-        <p class="page-lead">
-          Overloaded people, dates slipping past, and work stuck behind a gate —
-          worked out from this plan alone, no external tools involved.
-        </p>
-      </div>
-      <button type="button" class="btn btn-ghost btn-sm" id="refresh-alerts">Refresh</button>
-    </div>`;
-
-  if (!state.alerts?.length) {
-    return `${head}
-      <div class="empty">
-        <span class="empty-title">Nothing to flag</span>
-        <p class="empty-body">No overloads, no overdue work, nothing blocked. Check back after your next round of edits.</p>
-      </div>`;
-  }
-
-  const renderGroup = (title, items, severity) => {
-    if (!items.length) return '';
-    const rows = items
-      .map((a) => {
-        const meta = [a.resource_name, a.team, a.week && `week of ${prettyDate(a.week)}`, a.due_week && `due ${prettyDate(a.due_week)}`]
-          .filter(Boolean)
-          .join(' · ');
-        return `
-        <div class="alert-item ${severity}">
-          <div>
-            <div class="alert-msg">${escapeHtml(a.message)}</div>
-            ${meta ? `<div class="alert-meta">${escapeHtml(meta)}</div>` : ''}
-            ${ALERT_ADVICE[a.type] ? `<div class="alert-fix">${escapeHtml(ALERT_ADVICE[a.type])}</div>` : ''}
-          </div>
-        </div>`;
-      })
-      .join('');
-    return `
-      <section class="panel">
-        <div class="panel-head">
-          <h2 class="section-title">${escapeHtml(title)}</h2>
-          <span class="badge">${items.length}</span>
-        </div>
-        <div class="alert-group">${rows}</div>
-      </section>`;
-  };
-
-  return `
-    ${head}
-    <div class="stat-row">
-      <div class="stat${state.alertCounts?.high ? ' warn' : ''}">
-        <span class="stat-num">${state.alertCounts?.high ?? 0}</span><span class="stat-label">need action</span>
-      </div>
-      <div class="stat"><span class="stat-num">${state.alertCounts?.medium ?? 0}</span><span class="stat-label">worth a look</span></div>
-      <div class="stat"><span class="stat-num">${state.alertCounts?.low ?? 0}</span><span class="stat-label">for info</span></div>
-    </div>
-    ${renderGroup('Need action', groups.high, 'high')}
-    ${renderGroup('Worth a look', groups.medium, 'medium')}
-    ${renderGroup('For information', groups.low, 'low')}
   `;
 }
 
@@ -1378,15 +1297,6 @@ export function renderGuideView({ state }) {
           </ul>
           <p><a href="#/capacity">Go to Capacity →</a></p>
         </li>
-
-        <li class="guide-step">
-          <div class="guide-step-head">
-            <span class="guide-step-num">6</span>
-            <h3>Watch the alerts</h3>
-          </div>
-          <p>Overloads, dates about to pass, and work stuck behind a gate — collected in one list with a suggestion for each.</p>
-          <p><a href="#/alerts">Go to Alerts →</a></p>
-        </li>
       </ol>
     </section>
 
@@ -1411,7 +1321,7 @@ export function renderGuideView({ state }) {
         </div>
         <div class="glossary-card">
           <h3>Gate</h3>
-          <p>Something that must happen before a row can start. Open gates push out its can-start date and show up in Alerts.</p>
+          <p>Something that must happen before a row can start. Open gates push out its can-start date on the Planner.</p>
         </div>
         <div class="glossary-card">
           <h3>Due period vs spread</h3>

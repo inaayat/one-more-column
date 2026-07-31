@@ -101,15 +101,15 @@ only expands into the full set once a second version exists.
 
 ---
 
-## 8. Alerts can't be acted on from the Alerts page
+## 8. Alerts UI archived — fold into dependencies later
 
-**Now:** each alert explains itself and suggests a fix, but you have to navigate
-to the Planner and find the row by hand. There's no dismiss or snooze either, so
-a known-and-accepted overload nags forever.
+**Now:** the Alerts page and sidebar entry are removed. `#/alerts` redirects to
+the Planner. Overload / proximity / gate signals still exist in `engines/alerts.js`
+and `GET /api/omc-alerts`, but nothing in the SPA surfaces them.
 
-**Where to start:** `engines/alerts.js` already puts `plan_item_id` and
-`resource_id` on most alerts — link straight to the row, and add a dismissed-until
-field keyed to the alert type and target.
+**Where to start:** when dependency/gate UX is deepened, surface the relevant
+alert types inline on blocked rows (and optionally Capacity overloads) instead of
+bringing back a standalone Alerts tab.
 
 ---
 

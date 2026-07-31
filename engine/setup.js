@@ -6,10 +6,10 @@
  * planning rules now live).
  */
 
-export const ROUTES = ['planner', 'capacity', 'alerts', 'team', 'task-types', 'plans', 'guide'];
+export const ROUTES = ['planner', 'capacity', 'team', 'task-types', 'plans', 'guide'];
 
 /** Routes that need a workspace + plan before they can show anything. */
-const NEEDS_PLAN = new Set(['planner', 'capacity', 'alerts', 'team', 'task-types']);
+const NEEDS_PLAN = new Set(['planner', 'capacity', 'team', 'task-types']);
 
 const LEGACY_ROUTES = {
   home: 'guide',
@@ -18,6 +18,8 @@ const LEGACY_ROUTES = {
   rules: 'capacity',
   plan: 'planner',
   dependencies: 'planner',
+  /** Alerts UI archived — dependency/gate issues surface on the Planner for now. */
+  alerts: 'planner',
   setup: 'plans',
 };
 
@@ -141,15 +143,6 @@ export function navItems(state) {
       lockedHint: 'needs a plan',
       lockedTitle,
       next: next === 'capacity',
-    },
-    {
-      id: 'alerts',
-      label: 'Alerts',
-      locked,
-      lockedHint: 'needs a plan',
-      lockedTitle,
-      count: state.alertCounts?.high || 0,
-      urgent: (state.alertCounts?.high || 0) > 0,
     },
     {
       id: 'team',
