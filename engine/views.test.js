@@ -30,6 +30,8 @@ import {
   getInitialRoute,
   normalizeRoute,
   getSetupProgress,
+  hasCustomizedTaskTypes,
+  postPlanRoute,
 } from './setup.js';
 
 const emptyState = {
@@ -297,11 +299,46 @@ test('routes needing a plan redirect, and say where they came from', () => {
   assert.equal(resolveRoute('capacity', fullState).redirectedFrom, null);
 });
 
-test('onboarding sends new users to Plans and returning users to Planner', () => {
+test('onboarding sends new users to Plans, then Task types before Planner', () => {
   assert.equal(getInitialRoute(emptyState), 'plans');
-  assert.equal(getInitialRoute(fullState), 'planner');
   assert.equal(getSetupProgress(emptyState).nextStep.id, 'plan');
+
+  // Plan exists but only seeded types → land on Task types first.
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    taskTypes: [
+      { id: 'tt1', key: 'general', label: 'General', fields: [], gate_templates: [] },
+    ],
+  };
+  assert.equal(getInitialRoute(planOnly), 'task-types');
+  assert.equal(getSetupProgress(planOnly).nextStep.id, 'types');
+  assert.equal(postPlanRoute(planOnly), 'task-types');
+  assert.equal(hasCustomizedTaskTypes(planOnly.taskTypes), false);
+
+  // Customized types → Planner.
+  assert.equal(getInitialRoute(fullState), 'planner');
+  assert.equal(getSetupProgress(fullState).typesReady, true);
   assert.equal(getSetupProgress(fullState).capacityReady, true);
+  assert.equal(postPlanRoute(fullState), 'planner');
+  assert.ok(navItems(planOnly).find((n) => n.id === 'task-types')?.next);
+});
+
+test('planner nudges toward Task types when the catalog is still defaults-only', () => {
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    scenarios: [{ id: 's1', name: 'Default', status: 'active' }],
+    activeScenarioId: 's1',
+    taskTypes: [
+      { id: 'tt1', key: 'general', label: 'General', fields: [], gate_templates: [] },
+    ],
+  };
+  const out = renderPlannerView({ state: planOnly });
+  assert.ok(out.includes('Set up task types first'));
+  assert.ok(out.includes('href="#/task-types"'));
 });
 
 test('capacity embeds planning rules as a disclosure, not a separate tab', () => {

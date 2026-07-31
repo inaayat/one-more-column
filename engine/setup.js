@@ -21,6 +21,29 @@ const LEGACY_ROUTES = {
   setup: 'plans',
 };
 
+/** Seeded catalog keys — present before anyone customizes. */
+const DEFAULT_TYPE_KEYS = new Set([
+  'general',
+  'deliverable',
+  'review',
+  'meeting',
+  'admin',
+  'other',
+]);
+
+/**
+ * True once the workspace has shaped its work catalog: a custom type, or any
+ * type with fields / gate dependencies. Seeded defaults alone don't count.
+ */
+export function hasCustomizedTaskTypes(taskTypes = []) {
+  return taskTypes.some(
+    (t) =>
+      !DEFAULT_TYPE_KEYS.has(t.key) ||
+      (t.fields || []).length > 0 ||
+      (t.gate_templates || []).length > 0,
+  );
+}
+
 export function normalizeRoute(route) {
   const mapped = LEGACY_ROUTES[route] || route;
   return ROUTES.includes(mapped) ? mapped : 'planner';
@@ -31,14 +54,18 @@ export function getSetupProgress(state) {
   const hasPlan = state.cycles.length > 0 && Boolean(state.activeCycleId);
   const hasTeam = state.resources.length > 0;
   const hasWork = state.planItems.length > 0;
+  const hasTypes = hasCustomizedTaskTypes(state.taskTypes);
 
-  /** Workspace + plan — the minimum needed to open Planner and list work. */
+  /** Workspace + plan — the minimum needed to open other pages. */
   const planReady = hasWorkspace && hasPlan;
+  /** Types (fields + dependency templates) should be shaped before listing work. */
+  const typesReady = planReady && hasTypes;
   /** Work listed and people to do it — the minimum for capacity to mean anything. */
   const capacityReady = planReady && hasWork && hasTeam;
 
   const steps = [
     { id: 'plan', label: 'Create a plan', done: planReady, route: 'plans' },
+    { id: 'types', label: 'Define task types', done: typesReady, route: 'task-types' },
     { id: 'work', label: 'List the work', done: hasWork, route: 'planner' },
     { id: 'team', label: 'Add your team', done: hasTeam, route: 'team' },
     { id: 'capacity', label: 'Check capacity', done: capacityReady, route: 'capacity' },
@@ -48,16 +75,21 @@ export function getSetupProgress(state) {
     steps,
     nextStep: steps.find((s) => !s.done) || null,
     planReady,
+    typesReady,
     capacityReady,
     hasWorkspace,
     hasPlan,
+    hasTypes,
     hasTeam,
     hasWork,
   };
 }
 
 export function getInitialRoute(state) {
-  return getSetupProgress(state).planReady ? 'planner' : 'plans';
+  const progress = getSetupProgress(state);
+  if (!progress.planReady) return 'plans';
+  if (!progress.typesReady) return 'task-types';
+  return 'planner';
 }
 
 /**
@@ -74,6 +106,11 @@ export function resolveRoute(route, state) {
   return { route: normalized, redirectedFrom: null };
 }
 
+/** Best landing route after creating or opening a plan. */
+export function postPlanRoute(state) {
+  return getSetupProgress(state).typesReady ? 'planner' : 'task-types';
+}
+
 export function navItems(state) {
   const progress = getSetupProgress(state);
   const next = progress.nextStep?.route;
@@ -81,6 +118,14 @@ export function navItems(state) {
   const lockedTitle = 'Create a plan first';
 
   return [
+    {
+      id: 'task-types',
+      label: 'Task types',
+      locked,
+      lockedHint: 'needs a plan',
+      lockedTitle,
+      next: next === 'task-types',
+    },
     {
       id: 'planner',
       label: 'Planner',
@@ -113,13 +158,6 @@ export function navItems(state) {
       lockedHint: 'needs a plan',
       lockedTitle,
       next: next === 'team',
-    },
-    {
-      id: 'task-types',
-      label: 'Task types',
-      locked,
-      lockedHint: 'needs a plan',
-      lockedTitle,
     },
     { id: 'plans', label: 'Plans', next: next === 'plans' },
     { id: 'guide', label: 'How it works' },

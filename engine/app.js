@@ -39,7 +39,7 @@ import {
   workspaceOptions,
 } from './views.js';
 import { renderWizard, blankWizard, validateStep } from './wizard.js';
-import { getInitialRoute, resolveRoute, navItems, normalizeRoute } from './setup.js';
+import { getInitialRoute, resolveRoute, navItems, normalizeRoute, postPlanRoute } from './setup.js';
 
 const APP_PATH = '/one-more-column/';
 const WORKSPACE_KEY = 'omc_active_workspace_id';
@@ -612,8 +612,8 @@ async function createPlanFromWizard(button) {
     state.wizard = blankWizard();
     await loadWorkspaces();
     await loadCoreData();
-    toast(`"${result.cycle.name}" is ready`);
-    navigate('planner');
+    toast(`"${result.cycle.name}" is ready — define your task types next`);
+    navigate(postPlanRoute(state));
     render();
   });
 }
@@ -797,7 +797,7 @@ function wirePlansEvents() {
         localStorage.removeItem(SCENARIO_KEY);
         await loadCoreData();
         toast('Plan opened');
-        navigate('planner');
+        navigate(postPlanRoute(state));
       }),
     );
   });

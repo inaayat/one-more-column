@@ -328,7 +328,7 @@ function stepReview(wizard, state) {
           .join('')}
       </div>
 
-      <p class="field-hint">Next you'll land on the Planner to list the work itself.</p>
+      <p class="field-hint">Next you'll set up task types (fields and dependencies), then list the work itself.</p>
 
       <div class="wizard-foot">
         <button type="button" class="btn btn-ghost" id="wiz-back">← Back</button>
