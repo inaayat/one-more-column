@@ -173,9 +173,27 @@ const DAY_KINDS = [
   ['calendar', 'Calendar days'],
 ];
 
+const FIELD_TYPES = [
+  ['text', 'Text'],
+  ['number', 'Number'],
+  ['date', 'Date'],
+  ['select', 'Select'],
+];
+
 function taskTypePairs(taskTypes) {
   if (taskTypes?.length) return taskTypes.map((t) => [t.key, t.label]);
   return FALLBACK_TASK_TYPES;
+}
+
+/** Option list keyed by id (for import task-type selector). */
+function taskTypeIdOptions(taskTypes, selectedId) {
+  const opts = [`<option value=""${!selectedId ? ' selected' : ''}>Built-in columns only</option>`];
+  for (const t of taskTypes || []) {
+    opts.push(
+      `<option value="${escapeHtml(t.id)}"${selectedId === t.id ? ' selected' : ''}>${escapeHtml(t.label)}</option>`,
+    );
+  }
+  return opts.join('');
 }
 
 function optionList(pairs, selected) {
@@ -342,9 +360,40 @@ export function renderPlannerView({ state }) {
     })
     .join('');
 
-  const importPreview = state.importPreview
+  const preview = state.importPreview;
+  const matchedFieldLabels = (preview?.matched_fields || []).map((f) => f.label || f.key);
+  const unmatchedCols = preview?.unmatched_headers || [];
+  const rowWarnings = (preview?.rows || []).flatMap((r) =>
+    (r.warnings || []).map((w) => `Row ${r.row}: ${w}`),
+  );
+  const importPreview = preview
     ? `<div class="notice notice-info">
-         <strong>${state.importPreview.count} rows</strong> ready to import.
+         <strong>${preview.count} rows</strong> ready to import${
+           preview.task_type_label
+             ? ` as <strong>${escapeHtml(preview.task_type_label)}</strong>`
+             : ''
+         }.
+         ${
+           matchedFieldLabels.length
+             ? `<p class="field-hint" style="margin-top:8px">Also importing: ${escapeHtml(matchedFieldLabels.join(', '))}</p>`
+             : ''
+         }
+         ${
+           unmatchedCols.length
+             ? `<p class="field-hint" style="margin-top:4px">No match for: ${escapeHtml(unmatchedCols.join(', '))}</p>`
+             : ''
+         }
+         ${
+           rowWarnings.length
+             ? `<ul style="margin:8px 0 0;padding-left:1.2em;font-size:0.85rem">
+                  ${rowWarnings
+                    .slice(0, 8)
+                    .map((w) => `<li>${escapeHtml(w)}</li>`)
+                    .join('')}
+                  ${rowWarnings.length > 8 ? `<li>…and ${rowWarnings.length - 8} more</li>` : ''}
+                </ul>`
+             : ''
+         }
          <div class="btn-row" style="margin-top:10px">
            <button type="button" class="btn btn-primary btn-sm" id="confirm-import">Import them</button>
            <button type="button" class="btn btn-ghost btn-sm" id="cancel-import">Cancel</button>
@@ -456,9 +505,24 @@ export function renderPlannerView({ state }) {
       <details class="disclosure" id="import-disclosure" style="border-top:none;padding-top:0"${state.importSectionOpen ? ' open' : ''}>
         <summary>Import, export, and drift</summary>
         <div class="disclosure-body">
+          <label class="field" style="max-width:280px;margin-bottom:12px">
+            <span class="field-label">Task type</span>
+            <select id="import-task-type" class="input" aria-label="Import task type">
+              ${taskTypeIdOptions(state.taskTypes, state.importTaskTypeId)}
+            </select>
+            <p class="field-hint">Optional — maps extra CSV columns onto that type's custom fields.</p>
+          </label>
           <label class="field">
             <span class="field-label">Paste CSV</span>
-            <p class="field-hint">Columns: <span class="mono">title, work_hours, due_week, phase</span></p>
+            <p class="field-hint">Columns: <span class="mono">title, work_hours, due_week, phase</span>${
+              (() => {
+                const t = (state.taskTypes || []).find((x) => x.id === state.importTaskTypeId);
+                const extras = (t?.fields || []).map((f) => f.key);
+                return extras.length
+                  ? ` · plus <span class="mono">${escapeHtml(extras.join(', '))}</span>`
+                  : '';
+              })()
+            }</p>
             <textarea id="import-csv" class="input" rows="4" placeholder="title,work_hours,due_week,phase&#10;Draft the forecast,8,2026-01-12,Phase 1">${escapeHtml(state.importCsvText || '')}</textarea>
           </label>
           <div class="btn-row">
@@ -851,6 +915,7 @@ export function renderTaskTypesView({ state }) {
     .map((t) => {
       const open = expanded.has(t.id);
       const steps = t.gate_templates || [];
+      const fields = t.fields || [];
       const stepRows = steps
         .map(
           (s, i) => `
@@ -878,12 +943,53 @@ export function renderTaskTypesView({ state }) {
         )
         .join('');
 
+      const fieldRows = fields
+        .map(
+          (f, i) => `
+        <tr data-field-id="${escapeHtml(f.id)}" data-type-id="${escapeHtml(t.id)}">
+          <td class="planner-num">${i + 1}</td>
+          <td>
+            <input class="input input-sm" data-custom-field="label" value="${escapeHtml(f.label || '')}" aria-label="Field label" />
+            <div class="field-hint" style="margin-top:4px">Key: <code>${escapeHtml(f.key)}</code></div>
+          </td>
+          <td>
+            <select class="input input-sm" data-custom-field="field_type" aria-label="Field type">${optionList(FIELD_TYPES, f.field_type || 'text')}</select>
+          </td>
+          <td>
+            <input class="input input-sm" data-custom-field="options"
+              value="${escapeHtml(Array.isArray(f.options) ? f.options.join(', ') : '')}"
+              aria-label="Select options" placeholder="High, Medium, Low"
+              ${f.field_type === 'select' ? '' : ' disabled'} />
+          </td>
+          <td>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem">
+              <input type="checkbox" data-custom-field="required"${f.required ? ' checked' : ''} />
+              Required
+            </label>
+          </td>
+          <td class="planner-actions">
+            <button type="button" class="btn-icon" data-delete-field="${escapeHtml(f.id)}" data-type-id="${escapeHtml(t.id)}" aria-label="Remove field">
+              <span aria-hidden="true">×</span>
+            </button>
+          </td>
+        </tr>`,
+        )
+        .join('');
+
+      const summaryBits = [];
+      summaryBits.push(
+        steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps',
+      );
+      if (fields.length) {
+        summaryBits.push(`${fields.length} field${fields.length === 1 ? '' : 's'}`);
+      }
+
       return `
       <tr data-id="${escapeHtml(t.id)}">
         <td>
           <button type="button" class="gate-toggle" data-toggle-type="${escapeHtml(t.id)}" aria-expanded="${open}">
             <span class="gate-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
-            ${steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps'}
+            ${escapeHtml(summaryBits.join(' · '))}
           </button>
         </td>
         <td>
@@ -929,6 +1035,32 @@ export function renderTaskTypesView({ state }) {
                         </table>
                       </div>`
                    : '<p class="field-hint">No steps yet — add the sequence this type always needs.</p>'}
+
+                 <div class="gate-drawer-head" style="margin-top:28px">
+                   <div>
+                     <div class="gate-drawer-title">Custom fields</div>
+                     <p class="gate-drawer-hint">Extra columns CSV import (and attributes) can fill for this type — e.g. Control ID, Reliance, Sampling.</p>
+                   </div>
+                 </div>
+                 <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;margin-bottom:14px">
+                   <label class="field">
+                     <span class="field-label">Field label</span>
+                     <input class="input" data-new-field-label="${escapeHtml(t.id)}" placeholder="e.g. Control ID" autocomplete="off" />
+                   </label>
+                   <label class="field">
+                     <span class="field-label">Type</span>
+                     <select class="input" data-new-field-type="${escapeHtml(t.id)}">${optionList(FIELD_TYPES, 'text')}</select>
+                   </label>
+                   <button type="button" class="btn btn-ghost" data-add-field="${escapeHtml(t.id)}">Add field</button>
+                 </div>
+                 ${fields.length
+                   ? `<div class="table-scroll">
+                        <table class="table">
+                          <thead><tr><th></th><th>Label</th><th>Type</th><th>Options (select)</th><th></th><th></th></tr></thead>
+                          <tbody>${fieldRows}</tbody>
+                        </table>
+                      </div>`
+                   : '<p class="field-hint">No custom fields yet — add ones that CSV import should map into attributes.</p>'}
                </div>
              </td>
            </tr>`
@@ -942,8 +1074,8 @@ export function renderTaskTypesView({ state }) {
         <p class="eyebrow">Task types</p>
         <h1 class="page-title">Kinds of work</h1>
         <p class="page-lead">
-          Custom types for the Planner dropdown. Attach an ordered gate template to any type,
-          then apply it to a work item in one click.
+          Custom types for the Planner dropdown. Attach an ordered gate template and custom
+          fields to any type — fields map onto CSV import columns.
         </p>
       </div>
       <div class="btn-row">

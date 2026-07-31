@@ -120,6 +120,19 @@ const fullState = {
         { id: 'gs3', label: 'Select samples', duration_days: 7, day_kind: 'business', dep_type: 'sample_chain' },
         { id: 'gs4', label: 'Get sample support', duration_days: 7, day_kind: 'business', dep_type: 'input_ready' },
       ],
+      fields: [
+        { id: 'cf1', key: 'control_id', label: 'Control ID', field_type: 'text', required: false, seq: 1 },
+        {
+          id: 'cf2',
+          key: 'reliance',
+          label: 'Reliance',
+          field_type: 'select',
+          options: ['High', 'Medium', 'Low'],
+          required: false,
+          seq: 2,
+        },
+        { id: 'cf3', key: 'sampling', label: 'Sampling', field_type: 'text', required: false, seq: 3 },
+      ],
     },
   ],
   policy: { config: { tracking_granularity: 'week', weekly_capacity_default: 32 } },
@@ -300,6 +313,45 @@ test('task types view lists nested gate steps for an expanded type', () => {
   assert.ok(out.includes('Obtain population'));
   assert.ok(out.includes('Select samples'));
   assert.ok(out.includes('data-add-step="tt3"'));
+});
+
+test('task types view lists custom fields next to the gate template', () => {
+  const out = renderTaskTypesView({ state: fullState });
+  assert.ok(out.includes('Custom fields'));
+  assert.ok(out.includes('Control ID'));
+  assert.ok(out.includes('data-add-field="tt3"'));
+  assert.ok(out.includes('3 steps · 3 fields'));
+});
+
+test('planner import section offers a task type selector', () => {
+  const out = renderPlannerView({ state: fullState });
+  assert.ok(out.includes('id="import-task-type"'));
+  assert.ok(out.includes('Built-in columns only'));
+  assert.ok(out.includes('Control Testing'));
+});
+
+test('import preview surfaces matched custom fields and unmatched columns', () => {
+  const out = renderPlannerView({
+    state: {
+      ...fullState,
+      importSectionOpen: true,
+      importPreview: {
+        count: 2,
+        task_type_label: 'Control Testing',
+        matched_fields: [
+          { key: 'control_id', label: 'Control ID' },
+          { key: 'reliance', label: 'Reliance' },
+        ],
+        unmatched_headers: ['Extra Col'],
+        rows: [
+          { row: 2, warnings: ['Reliance: "Maybe" is not in [High, Medium, Low]'] },
+        ],
+      },
+    },
+  });
+  assert.ok(out.includes('Also importing: Control ID, Reliance'));
+  assert.ok(out.includes('No match for: Extra Col'));
+  assert.ok(out.includes('Row 2: Reliance'));
 });
 
 test('task-types route is gated until a plan exists', () => {

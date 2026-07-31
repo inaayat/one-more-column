@@ -67,6 +67,7 @@ const state = {
   importPreview: null,
   importCsvText: '',
   importSectionOpen: false,
+  importTaskTypeId: '',
   changelog: [],
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
@@ -186,6 +187,36 @@ function captureTaskTypeEdits() {
     if (dayKind !== undefined) step.day_kind = dayKind;
     if (depType !== undefined) step.dep_type = depType;
   }
+
+  for (const row of document.querySelectorAll('#task-types-table tr[data-field-id]')) {
+    const type = state.taskTypes.find((t) => t.id === row.dataset.typeId);
+    if (!type) continue;
+    const field = (type.fields || []).find((f) => f.id === row.dataset.fieldId);
+    if (!field) continue;
+    const label = row.querySelector('[data-custom-field="label"]')?.value;
+    const fieldType = row.querySelector('[data-custom-field="field_type"]')?.value;
+    const optionsRaw = row.querySelector('[data-custom-field="options"]')?.value;
+    const required = row.querySelector('[data-custom-field="required"]')?.checked;
+    if (label !== undefined) field.label = label;
+    if (fieldType !== undefined) field.field_type = fieldType;
+    if (optionsRaw !== undefined) {
+      field.options = optionsRaw
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+    }
+    if (required !== undefined) field.required = Boolean(required);
+  }
+}
+
+/** Client-side mirror of the server slugify used for field keys. */
+function slugifyFieldKey(label) {
+  return String(label || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 64);
 }
 
 function captureWizardFields() {
@@ -217,6 +248,8 @@ function captureAll() {
   if (route === 'planner') {
     const csv = document.getElementById('import-csv');
     if (csv) state.importCsvText = csv.value;
+    const typeSel = document.getElementById('import-task-type');
+    if (typeSel) state.importTaskTypeId = typeSel.value || '';
   }
 
   // After a reload the DOM still holds the pre-reload markup, so capturing from
@@ -487,6 +520,15 @@ async function saveTaskTypes() {
         duration_days: Number(s.duration_days) || 1,
         day_kind: s.day_kind || 'business',
         dep_type: s.dep_type || 'input_ready',
+        seq: i + 1,
+      })),
+      fields: (type.fields || []).map((f, i) => ({
+        id: f.id,
+        key: f.key,
+        label: f.label,
+        field_type: f.field_type || 'text',
+        options: f.field_type === 'select' ? f.options || [] : null,
+        required: Boolean(f.required),
         seq: i + 1,
       })),
     });
@@ -1043,10 +1085,13 @@ function wirePlannerEvents() {
         toast('Paste some CSV first', 'warn');
         return;
       }
+      const task_type_id = document.getElementById('import-task-type')?.value || '';
+      state.importTaskTypeId = task_type_id;
       state.importPreview = await importApi.preview(state.token, {
         cycle_id: state.activeCycleId,
         scenario_id: state.activeScenarioId,
         csv_text,
+        ...(task_type_id ? { task_type_id } : {}),
       });
       // Keep the section open so the preview appears next to the CSV that
       // produced it, instead of the disclosure snapping shut on render.
@@ -1062,10 +1107,13 @@ function wirePlannerEvents() {
         toast('Paste some CSV first', 'warn');
         return;
       }
+      const task_type_id =
+        state.importTaskTypeId || document.getElementById('import-task-type')?.value || '';
       await importApi.commit(state.token, {
         cycle_id: state.activeCycleId,
         scenario_id: state.activeScenarioId,
         csv_text,
+        ...(task_type_id ? { task_type_id } : {}),
       });
       state.importPreview = null;
       // captureAll() unconditionally re-reads #import-csv on every render (see
@@ -1081,6 +1129,12 @@ function wirePlannerEvents() {
   );
 
   document.getElementById('cancel-import')?.addEventListener('click', () => {
+    state.importPreview = null;
+    render();
+  });
+
+  document.getElementById('import-task-type')?.addEventListener('change', (e) => {
+    state.importTaskTypeId = e.target.value || '';
     state.importPreview = null;
     render();
   });
@@ -1255,7 +1309,15 @@ function wireTeamEvents() {
 function wireTaskTypesEvents() {
   const table = document.getElementById('task-types-table');
   table?.addEventListener('input', markTaskTypesDirty);
-  table?.addEventListener('change', markTaskTypesDirty);
+  table?.addEventListener('change', (e) => {
+    markTaskTypesDirty();
+    // Field-type changes enable/disable the options input — re-render so that
+    // (and the summary counts) stay in sync with what the user just picked.
+    if (e.target?.matches?.('[data-custom-field="field_type"]')) {
+      captureTaskTypeEdits();
+      render();
+    }
+  });
 
   document.getElementById('save-task-types')?.addEventListener('click', (e) =>
     guard(() => withBusy(e.currentTarget, 'Saving…', saveTaskTypes).then(render)),
@@ -1300,7 +1362,7 @@ function wireTaskTypesEvents() {
         const type = state.taskTypes.find((t) => t.id === id);
         const ok = await confirmDialog({
           title: `Delete ${type?.label || 'this type'}?`,
-          body: 'Its gate template goes too. Existing plan rows keep their type key, but the dropdown option disappears.',
+          body: 'Its gate template and custom fields go too. Existing plan rows keep their type key, but the dropdown option disappears.',
           confirmLabel: 'Delete type',
           danger: true,
         });
@@ -1364,6 +1426,58 @@ function wireTaskTypesEvents() {
         markTaskTypesDirty();
         await saveTaskTypes();
         toast('Step removed');
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-add-field]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const typeId = btn.dataset.addField;
+        const labelInput = document.querySelector(`[data-new-field-label="${typeId}"]`);
+        const label = labelInput?.value?.trim();
+        if (!label) {
+          labelInput?.focus();
+          toast('Give the field a label first', 'warn');
+          return;
+        }
+        captureTaskTypeEdits();
+        const type = state.taskTypes.find((t) => t.id === typeId);
+        if (!type) return;
+        const fieldType =
+          document.querySelector(`[data-new-field-type="${typeId}"]`)?.value || 'text';
+        if (!type.fields) type.fields = [];
+        type.fields.push({
+          id: crypto.randomUUID(),
+          task_type_id: typeId,
+          key: slugifyFieldKey(label) || `field_${type.fields.length + 1}`,
+          label,
+          field_type: fieldType,
+          options: fieldType === 'select' ? [] : null,
+          required: false,
+          seq: type.fields.length + 1,
+        });
+        state.expandedTaskTypes.add(typeId);
+        markTaskTypesDirty();
+        await saveTaskTypes();
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-delete-field]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        captureTaskTypeEdits();
+        const typeId = btn.dataset.typeId;
+        const fieldId = btn.dataset.deleteField;
+        const type = state.taskTypes.find((t) => t.id === typeId);
+        if (!type) return;
+        type.fields = (type.fields || []).filter((f) => f.id !== fieldId);
+        markTaskTypesDirty();
+        await saveTaskTypes();
+        toast('Field removed');
         render();
       }),
     );
