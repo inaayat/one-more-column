@@ -30,8 +30,8 @@ Flexible capacity planner — specs and build plan for moving beyond multi-sheet
 | Done | **H2** | Plan Builder UI, scenarios, CSV import |
 | Done | **C2** | Dependencies + readiness tracker (core) |
 | Done | **C1** | Capacity hardening: bands, assumptions, PTO, effort model |
-| Done | **H3 / C4** | CSV export, in-app alerts, import drift |
-| Done | **UX1** | Guided plan creation, sidebar shell, reachable guide and alerts |
+| Done | **H3 / C4** | CSV export, in-app alerts (engine; UI archived), import drift |
+| Done | **UX1** | Guided plan creation, sidebar shell, reachable guide |
 | Later | **P1** | Additional planning profiles |
 
 See [BUILD_PLAN.md](./BUILD_PLAN.md) for full detail and [FOLLOW_UPS.md](./FOLLOW_UPS.md) for what UX1 deliberately left open.
@@ -50,8 +50,8 @@ everything else is a pure function of state.
 | `engine/setup.js` | Routes, onboarding progress, nav |
 | `engine/app.css` | The only stylesheet |
 
-Routes: `planner`, `capacity`, `alerts`, `team`, `plans`, `rules`, `guide`.
-Older hashes (`home`, `settings`, `preferences`, `dependencies`) still resolve —
+Routes: `planner`, `capacity`, `team`, `task-types`, `plans`, `guide`.
+Older hashes (`home`, `settings`, `preferences`, `rules`, `dependencies`, `alerts`) still resolve —
 see `LEGACY_ROUTES` in `engine/setup.js`.
 
 **Visual language:** shared with the rest of inaayat.xyz — cream page, Fraunces

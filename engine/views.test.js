@@ -15,7 +15,6 @@ import {
   renderPlansView,
   renderPlannerView,
   renderCapacityView,
-  renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
   renderGuideView,
@@ -30,6 +29,8 @@ import {
   getInitialRoute,
   normalizeRoute,
   getSetupProgress,
+  hasCustomizedTaskTypes,
+  postPlanRoute,
 } from './setup.js';
 
 const emptyState = {
@@ -49,8 +50,6 @@ const emptyState = {
   readiness: [],
   importPreview: null,
   changelog: [],
-  alerts: [],
-  alertCounts: { high: 0, medium: 0, low: 0 },
   activeTeamFilter: '',
   capacityGranularity: 'week',
   expandedRows: new Set(),
@@ -191,12 +190,6 @@ const fullState = {
     ],
   },
   changelog: [{ created_at: '2026-01-02T10:00:00Z', summary: 'Created plan' }],
-  alerts: [
-    { type: 'overload', severity: 'high', message: 'Overloaded', resource_name: 'x', week: '2026-01-12' },
-    { type: 'due_proximity', severity: 'medium', message: 'Due soon', due_week: '2026-01-12' },
-    { type: 'gate_proximity', severity: 'low', message: 'Gate due' },
-  ],
-  alertCounts: { high: 1, medium: 1, low: 1 },
   expandedRows: new Set(['p1']),
   expandedTaskTypes: new Set(['tt2', 'tt3']),
   isDirty: true,
@@ -208,7 +201,6 @@ const views = {
   plans: (s) => renderPlansView({ state: s, redirectedFrom: 'capacity' }),
   planner: (s) => renderPlannerView({ state: s }),
   capacity: (s) => renderCapacityView({ state: s }),
-  alerts: (s) => renderAlertsView({ state: s }),
   team: (s) => renderTeamView({ state: s }),
   'task-types': (s) => renderTaskTypesView({ state: s }),
   guide: (s) => renderGuideView({ state: s }),
@@ -282,6 +274,7 @@ test('legacy hashes still resolve', () => {
   assert.equal(normalizeRoute('preferences'), 'capacity');
   assert.equal(normalizeRoute('rules'), 'capacity');
   assert.equal(normalizeRoute('dependencies'), 'planner');
+  assert.equal(normalizeRoute('alerts'), 'planner');
   assert.equal(normalizeRoute('nonsense'), 'planner');
 });
 
@@ -297,11 +290,70 @@ test('routes needing a plan redirect, and say where they came from', () => {
   assert.equal(resolveRoute('capacity', fullState).redirectedFrom, null);
 });
 
-test('onboarding sends new users to Plans and returning users to Planner', () => {
+test('onboarding sends new users to Plans, then Task types before Planner', () => {
   assert.equal(getInitialRoute(emptyState), 'plans');
-  assert.equal(getInitialRoute(fullState), 'planner');
   assert.equal(getSetupProgress(emptyState).nextStep.id, 'plan');
+
+  // Plan exists but only seeded types → land on Task types first.
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    taskTypes: [
+      { id: 'tt1', key: 'general', label: 'General', fields: [], gate_templates: [] },
+    ],
+  };
+  assert.equal(getInitialRoute(planOnly), 'task-types');
+  assert.equal(getSetupProgress(planOnly).nextStep.id, 'types');
+  assert.equal(postPlanRoute(planOnly), 'task-types');
+  assert.equal(hasCustomizedTaskTypes(planOnly.taskTypes), false);
+
+  // Customized types → Planner.
+  assert.equal(getInitialRoute(fullState), 'planner');
+  assert.equal(getSetupProgress(fullState).typesReady, true);
   assert.equal(getSetupProgress(fullState).capacityReady, true);
+  assert.equal(postPlanRoute(fullState), 'planner');
+  assert.ok(navItems(planOnly).find((n) => n.id === 'task-types')?.next);
+});
+
+test('planner nudges toward Task types when the catalog is still defaults-only', () => {
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    scenarios: [{ id: 's1', name: 'Default', status: 'active' }],
+    activeScenarioId: 's1',
+    taskTypes: [
+      { id: 'tt1', key: 'general', label: 'General', fields: [], gate_templates: [] },
+    ],
+  };
+  const out = renderPlannerView({ state: planOnly });
+  assert.ok(out.includes('Set up task types first'));
+  assert.ok(out.includes('href="#/task-types"'));
+});
+
+test('planner puts Add work above the empty state', () => {
+  const planOnly = {
+    ...emptyState,
+    cycles: [{ id: 'c1', name: 'Q1' }],
+    activeCycleId: 'c1',
+    scenarios: [{ id: 's1', name: 'Default', status: 'active' }],
+    activeScenarioId: 's1',
+    taskTypes: [
+      {
+        id: 'tt1',
+        key: 'custom',
+        label: 'Custom',
+        fields: [{ id: 'f1', key: 'x', label: 'X', field_type: 'text' }],
+        gate_templates: [],
+      },
+    ],
+  };
+  const out = renderPlannerView({ state: planOnly });
+  const addAt = out.indexOf('Add work');
+  const emptyAt = out.indexOf('Nothing listed yet');
+  assert.ok(addAt >= 0 && emptyAt >= 0);
+  assert.ok(addAt < emptyAt, 'Add work should appear before the empty state');
 });
 
 test('capacity embeds planning rules as a disclosure, not a separate tab', () => {
@@ -310,6 +362,9 @@ test('capacity embeds planning rules as a disclosure, not a separate tab', () =>
   assert.ok(out.includes('Planning rules'));
   assert.ok(out.includes('id="save-policy"'));
   assert.ok(!navItems(fullState).some((n) => n.id === 'rules'), 'Settings tab should be gone');
+  assert.ok(!navItems(fullState).some((n) => n.id === 'alerts'), 'Alerts tab should be archived');
+  assert.ok(out.includes('href="#/planner"'), 'open gates should point at Planner, not Alerts');
+  assert.ok(!out.includes('href="#/alerts"'));
 });
 
 test('user-supplied text is escaped, not executed', () => {

@@ -47,7 +47,6 @@ function redirectNotice(redirectedFrom) {
   const names = {
     planner: 'Planner',
     capacity: 'Capacity',
-    alerts: 'Alerts',
     team: 'Team',
     'task-types': 'Task types',
   };
@@ -357,6 +356,7 @@ export function renderPlannerView({ state }) {
   const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
   const isLive = activeScenario?.status === 'active';
   const typePairs = taskTypePairs(state.taskTypes);
+  const progress = getSetupProgress(state);
 
   const depsByItem = new Map();
   for (const dep of state.dependencies || []) {
@@ -507,13 +507,14 @@ export function renderPlannerView({ state }) {
       </p>
     </section>
 
-    ${empty
-      ? `<div class="empty">
-           <span class="empty-title">Nothing listed yet</span>
-           <p class="empty-body">
-             Add the first piece of work below. Give it hours and a due date and it will show up
-             on the capacity grid straight away — you don't need your team in place first.
-           </p>
+    ${!progress.typesReady
+      ? `<div class="notice notice-info" style="margin-bottom:16px">
+           <strong>Set up task types first.</strong>
+           Define the kinds of work you track, the fields on each, and any dependency gates —
+           then come back here to add the specific items.
+           <div class="btn-row" style="margin-top:10px">
+             <a class="btn btn-primary btn-sm" href="#/task-types">Go to Task types</a>
+           </div>
          </div>`
       : ''}
 
@@ -540,8 +541,21 @@ export function renderPlannerView({ state }) {
       </div>
     </section>
 
-    ${state.planItems.length
-      ? `<section class="panel panel-flush">
+    ${empty
+      ? `<div class="empty">
+           <span class="empty-title">Nothing listed yet</span>
+           <p class="empty-body">
+             ${progress.typesReady
+               ? `Use Add work above for the first item. Give it hours and a due date and it will show up
+             on the capacity grid straight away — you don't need your team in place first.`
+               : `Your catalog isn't shaped yet. Define task types (fields and dependencies) first,
+             then add specific work items here.`}
+           </p>
+           ${!progress.typesReady
+             ? `<a class="btn btn-primary" href="#/task-types">Define task types</a>`
+             : ''}
+         </div>`
+      : `<section class="panel panel-flush">
            <div class="table-scroll">
              <table class="table planner-table">
                <thead>
@@ -560,8 +574,7 @@ export function renderPlannerView({ state }) {
                <tbody>${rows}</tbody>
              </table>
            </div>
-         </section>`
-      : ''}
+         </section>`}
 
     <section class="panel">
       ${importPreview}
@@ -636,7 +649,7 @@ function renderPlanningRulesPanel(state) {
     ['policy-weekly', 'Default hours per week', policy.weekly_capacity_default ?? 32, 1, 'Used for anyone without their own number on the Team page.'],
     ['policy-yellow', 'Amber below (hours left)', policy.band_yellow_remaining ?? 8, 1, 'A cell turns amber once someone has fewer than this many hours spare.'],
     ['policy-threshold', 'Overload at (× capacity)', policy.overload_threshold ?? 1, 0.05, 'Where red starts. 1 means red as soon as planned hours pass available hours.'],
-    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out Alerts looks for upcoming due dates.'],
+    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out upcoming due dates are flagged (reserved for dependency/gate warnings).'],
     ['policy-review', 'Review ratio', policy.review_ratio ?? 0.35, 0.01, 'Extra review effort added on top of each item, as a fraction of its hours.'],
     ['policy-review-floor', 'Minimum review hours', policy.review_floor_hours ?? 0, 0.5, 'Review effort never drops below this, however small the item.'],
   ];
@@ -818,7 +831,7 @@ export function renderCapacityView({ state }) {
       ${openGates.length
         ? `<div class="notice notice-warn" style="margin-bottom:14px">
              <strong>${openGates.length} open gate${openGates.length === 1 ? '' : 's'}</strong> — some of this work can't start yet.
-             <a href="#/alerts">See what's blocking it</a>.
+             <a href="#/planner">Open the Planner to clear or waive gates</a>.
            </div>`
         : ''}
 
@@ -838,86 +851,6 @@ export function renderCapacityView({ state }) {
     </section>
 
     ${rulesPanel}
-  `;
-}
-
-/* ── Alerts ───────────────────────────────────────────────────────────── */
-
-const ALERT_ADVICE = {
-  overload: 'Move some of this work to a later period, or hand it to someone with room.',
-  tight_capacity: 'Still fits, but there is no slack left for anything unplanned.',
-  due_proximity: 'Coming up soon — check it is actually underway.',
-  overdue: 'The due date has passed. Move it out or mark the work done.',
-  readiness_gap: 'Open gates are holding this up. Clear them or waive them in the Planner.',
-  gate_proximity: 'A gate is due soon. Chase whoever owns it.',
-};
-
-export function renderAlertsView({ state }) {
-  const groups = { high: [], medium: [], low: [] };
-  for (const alert of state.alerts || []) {
-    groups[alert.severity]?.push(alert);
-  }
-
-  const head = `
-    <div class="page-bar">
-      <div class="page-head">
-        <p class="eyebrow">Alerts</p>
-        <h1 class="page-title">What needs attention</h1>
-        <p class="page-lead">
-          Overloaded people, dates slipping past, and work stuck behind a gate —
-          worked out from this plan alone, no external tools involved.
-        </p>
-      </div>
-      <button type="button" class="btn btn-ghost btn-sm" id="refresh-alerts">Refresh</button>
-    </div>`;
-
-  if (!state.alerts?.length) {
-    return `${head}
-      <div class="empty">
-        <span class="empty-title">Nothing to flag</span>
-        <p class="empty-body">No overloads, no overdue work, nothing blocked. Check back after your next round of edits.</p>
-      </div>`;
-  }
-
-  const renderGroup = (title, items, severity) => {
-    if (!items.length) return '';
-    const rows = items
-      .map((a) => {
-        const meta = [a.resource_name, a.team, a.week && `week of ${prettyDate(a.week)}`, a.due_week && `due ${prettyDate(a.due_week)}`]
-          .filter(Boolean)
-          .join(' · ');
-        return `
-        <div class="alert-item ${severity}">
-          <div>
-            <div class="alert-msg">${escapeHtml(a.message)}</div>
-            ${meta ? `<div class="alert-meta">${escapeHtml(meta)}</div>` : ''}
-            ${ALERT_ADVICE[a.type] ? `<div class="alert-fix">${escapeHtml(ALERT_ADVICE[a.type])}</div>` : ''}
-          </div>
-        </div>`;
-      })
-      .join('');
-    return `
-      <section class="panel">
-        <div class="panel-head">
-          <h2 class="section-title">${escapeHtml(title)}</h2>
-          <span class="badge">${items.length}</span>
-        </div>
-        <div class="alert-group">${rows}</div>
-      </section>`;
-  };
-
-  return `
-    ${head}
-    <div class="stat-row">
-      <div class="stat${state.alertCounts?.high ? ' warn' : ''}">
-        <span class="stat-num">${state.alertCounts?.high ?? 0}</span><span class="stat-label">need action</span>
-      </div>
-      <div class="stat"><span class="stat-num">${state.alertCounts?.medium ?? 0}</span><span class="stat-label">worth a look</span></div>
-      <div class="stat"><span class="stat-num">${state.alertCounts?.low ?? 0}</span><span class="stat-label">for info</span></div>
-    </div>
-    ${renderGroup('Need action', groups.high, 'high')}
-    ${renderGroup('Worth a look', groups.medium, 'medium')}
-    ${renderGroup('For information', groups.low, 'low')}
   `;
 }
 
@@ -1059,6 +992,7 @@ export function renderTeamView({ state }) {
 export function renderTaskTypesView({ state }) {
   const types = state.taskTypes || [];
   const expanded = state.expandedTaskTypes || new Set();
+  const progress = getSetupProgress(state);
 
   const rows = types
     .map((t) => {
@@ -1223,15 +1157,26 @@ export function renderTaskTypesView({ state }) {
         <p class="eyebrow">Task types</p>
         <h1 class="page-title">Kinds of work</h1>
         <p class="page-lead">
-          Custom types for the Planner dropdown. Attach fields (with value options) and
-          a gate template to any type — fields show on Planner rows and map onto CSV import.
+          Set this up <strong>before</strong> listing specific work items. For each type, define the
+          fields you track and the dependency gates it needs — then tag Planner rows with that type.
         </p>
       </div>
       <div class="btn-row">
         ${state.taskTypesDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
         <button type="button" class="btn btn-primary" id="save-task-types"${state.taskTypesDirty ? '' : ' disabled'}>Save changes</button>
+        ${progress.typesReady
+          ? `<a class="btn btn-ghost" href="#/planner">Continue to Planner</a>`
+          : ''}
       </div>
     </div>
+
+    ${!progress.typesReady && progress.planReady
+      ? `<div class="notice notice-info" style="margin-bottom:16px">
+           <strong>Next step after creating a plan.</strong>
+           Add or expand a type below — attach fields (with value options) and dependency steps —
+           before you list individual work items on the Planner.
+         </div>`
+      : ''}
 
     <section class="panel">
       <h2 class="section-title" style="margin-bottom:12px">Add a type</h2>
@@ -1283,8 +1228,8 @@ export function renderGuideView({ state }) {
       <p class="eyebrow">How it works</p>
       <h1 class="page-title">One More Column, in five minutes</h1>
       <p class="page-lead">
-        The idea: list the work, say who's around, and let the grid tell you where
-        it doesn't fit — without maintaining another workbook by hand.
+        The idea: define the kinds of work you track, list the items, say who's around, and let
+        the grid tell you where it doesn't fit — without maintaining another workbook by hand.
       </p>
     </div>
 
@@ -1300,22 +1245,35 @@ export function renderGuideView({ state }) {
           <p><a href="#/plans">Go to Plans →</a></p>
         </li>
 
-        <li class="guide-step${stepState('work')}">
+        <li class="guide-step${stepState('types')}">
           <div class="guide-step-head">
             <span class="guide-step-num">2</span>
+            <h3>Define task types</h3>
+          </div>
+          <p>Do this <strong>before</strong> listing individual work items. For each kind of work, set the fields you track (with value options) and any dependency gates that type always needs.</p>
+          <ul>
+            <li><strong>Fields</strong> show up on Planner rows tagged with that type.</li>
+            <li><strong>Dependencies</strong> become a one-click gate template on those rows.</li>
+          </ul>
+          <p><a href="#/task-types">Go to Task types →</a></p>
+        </li>
+
+        <li class="guide-step${stepState('work')}">
+          <div class="guide-step-head">
+            <span class="guide-step-num">3</span>
             <h3>List the work</h3>
           </div>
-          <p>One row per thing that needs doing. The two fields that matter are <strong>hours</strong> and <strong>due date</strong> — those are what land on the capacity grid.</p>
+          <p>One row per thing that needs doing. Pick a type, then fill hours and a due date — those are what land on the capacity grid.</p>
           <ul>
-            <li><strong>Type</strong> is just a label, for your own filtering.</li>
-            <li><strong>Details</strong> on each row holds duration, phase, and gates.</li>
+            <li><strong>Type</strong> chooses which fields and gate template apply.</li>
+            <li><strong>Details</strong> on each row holds type fields, duration, phase, and gates.</li>
           </ul>
           <p><a href="#/planner">Go to the Planner →</a></p>
         </li>
 
         <li class="guide-step${stepState('team')}">
           <div class="guide-step-head">
-            <span class="guide-step-num">3</span>
+            <span class="guide-step-num">4</span>
             <h3>Add your team</h3>
           </div>
           <p>Name, role, and hours a week each person can give to planned work. Book time off here too — it comes straight out of their available hours.</p>
@@ -1324,7 +1282,7 @@ export function renderGuideView({ state }) {
 
         <li class="guide-step${stepState('capacity')}">
           <div class="guide-step-head">
-            <span class="guide-step-num">4</span>
+            <span class="guide-step-num">5</span>
             <h3>Check capacity</h3>
           </div>
           <p>Every person against every period. The top number in a cell is hours planned; below it is hours left. Open <strong>Planning rules</strong> at the bottom of the page to tune what counts as amber or red.</p>
@@ -1334,15 +1292,6 @@ export function renderGuideView({ state }) {
             <li><span class="badge badge-bad">Red</span> more work than hours</li>
           </ul>
           <p><a href="#/capacity">Go to Capacity →</a></p>
-        </li>
-
-        <li class="guide-step">
-          <div class="guide-step-head">
-            <span class="guide-step-num">5</span>
-            <h3>Watch the alerts</h3>
-          </div>
-          <p>Overloads, dates about to pass, and work stuck behind a gate — collected in one list with a suggestion for each.</p>
-          <p><a href="#/alerts">Go to Alerts →</a></p>
         </li>
       </ol>
     </section>
@@ -1363,8 +1312,12 @@ export function renderGuideView({ state }) {
           <p>The live plan is what everyone works from. A draft is a scratch copy for trying "what if" without touching it.</p>
         </div>
         <div class="glossary-card">
+          <h3>Task type</h3>
+          <p>A kind of work you track — with its own fields and dependency template. Set these up before listing individual items.</p>
+        </div>
+        <div class="glossary-card">
           <h3>Gate</h3>
-          <p>Something that must happen before a row can start. Open gates push out its can-start date and show up in Alerts.</p>
+          <p>Something that must happen before a row can start. Open gates push out its can-start date on the Planner.</p>
         </div>
         <div class="glossary-card">
           <h3>Due period vs spread</h3>

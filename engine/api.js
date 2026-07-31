@@ -158,14 +158,6 @@ export const changelogApi = {
     apiFetch(`/api/omc-changelog?cycle=${encodeURIComponent(cycleId)}&limit=${limit}`, { token }),
 };
 
-export const alertsApi = {
-  list: (token, { cycle, scenario } = {}) => {
-    const params = new URLSearchParams({ cycle });
-    if (scenario) params.set('scenario', scenario);
-    return apiFetch(`/api/omc-alerts?${params}`, { token });
-  },
-};
-
 export const exportApi = {
   downloadUrl: ({ type, cycle, scenario, team, mode, format = 'csv' }) => {
     const params = new URLSearchParams({ type, cycle, format });
