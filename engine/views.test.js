@@ -18,7 +18,6 @@ import {
   renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
-  renderRulesView,
   renderGuideView,
   planOptions,
   workspaceOptions,
@@ -59,6 +58,7 @@ const emptyState = {
   isDirty: false,
   teamDirty: false,
   taskTypesDirty: false,
+  rulesSectionOpen: false,
   wizard: blankWizard(),
 };
 
@@ -95,12 +95,24 @@ const fullState = {
       id: 'tt1',
       key: 'general',
       label: 'General',
+      fields: [],
       gate_templates: [],
     },
     {
       id: 'tt2',
       key: 'deliverable',
       label: 'Deliverable',
+      fields: [
+        {
+          id: 'f1',
+          key: 'status',
+          label: 'Status',
+          field_type: 'select',
+          options: ['Draft', 'Final'],
+          required: false,
+          seq: 1,
+        },
+      ],
       gate_templates: [
         {
           id: 'gs1',
@@ -186,7 +198,7 @@ const fullState = {
   ],
   alertCounts: { high: 1, medium: 1, low: 1 },
   expandedRows: new Set(['p1']),
-  expandedTaskTypes: new Set(['tt3']),
+  expandedTaskTypes: new Set(['tt2', 'tt3']),
   isDirty: true,
   teamDirty: true,
   taskTypesDirty: false,
@@ -199,7 +211,6 @@ const views = {
   alerts: (s) => renderAlertsView({ state: s }),
   team: (s) => renderTeamView({ state: s }),
   'task-types': (s) => renderTaskTypesView({ state: s }),
-  rules: (s) => renderRulesView({ state: s }),
   guide: (s) => renderGuideView({ state: s }),
 };
 
@@ -268,7 +279,8 @@ test('wizard only offers granularities the capacity grid can draw', () => {
 test('legacy hashes still resolve', () => {
   assert.equal(normalizeRoute('home'), 'guide');
   assert.equal(normalizeRoute('settings'), 'plans');
-  assert.equal(normalizeRoute('preferences'), 'rules');
+  assert.equal(normalizeRoute('preferences'), 'capacity');
+  assert.equal(normalizeRoute('rules'), 'capacity');
   assert.equal(normalizeRoute('dependencies'), 'planner');
   assert.equal(normalizeRoute('nonsense'), 'planner');
 });
@@ -292,6 +304,14 @@ test('onboarding sends new users to Plans and returning users to Planner', () =>
   assert.equal(getSetupProgress(fullState).capacityReady, true);
 });
 
+test('capacity embeds planning rules as a disclosure, not a separate tab', () => {
+  const out = renderCapacityView({ state: fullState });
+  assert.ok(out.includes('id="rules-disclosure"'));
+  assert.ok(out.includes('Planning rules'));
+  assert.ok(out.includes('id="save-policy"'));
+  assert.ok(!navItems(fullState).some((n) => n.id === 'rules'), 'Settings tab should be gone');
+});
+
 test('user-supplied text is escaped, not executed', () => {
   const team = renderTeamView({ state: fullState });
   assert.ok(!team.includes('<script>'), 'raw script tag survived into the team view');
@@ -305,21 +325,19 @@ test('planner shows Apply gate template when the row type has steps', () => {
   const planner = renderPlannerView({ state: fullState });
   assert.ok(planner.includes('data-apply-gate-template="p1"'), 'deliverable with a template should offer Apply');
   assert.ok(planner.includes('Control Testing'), 'custom types appear in the type dropdown');
+  assert.ok(planner.includes('data-attr-field="status"'), 'type fields appear in the drawer');
+  assert.ok(planner.includes('Deliverable fields'));
 });
 
-test('task types view lists nested gate steps for an expanded type', () => {
+test('task types view lists custom fields next to the gate template', () => {
   const out = renderTaskTypesView({ state: fullState });
   assert.ok(out.includes('Control Testing'));
   assert.ok(out.includes('Obtain population'));
   assert.ok(out.includes('Select samples'));
   assert.ok(out.includes('data-add-step="tt3"'));
-});
-
-test('task types view lists custom fields next to the gate template', () => {
-  const out = renderTaskTypesView({ state: fullState });
-  assert.ok(out.includes('Custom fields'));
-  assert.ok(out.includes('Control ID'));
   assert.ok(out.includes('data-add-field="tt3"'));
+  assert.ok(out.includes('Control ID'));
+  assert.ok(out.includes('Custom fields'));
   assert.ok(out.includes('3 steps · 3 fields'));
 });
 

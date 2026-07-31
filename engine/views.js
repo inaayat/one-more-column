@@ -49,7 +49,7 @@ function redirectNotice(redirectedFrom) {
     capacity: 'Capacity',
     alerts: 'Alerts',
     team: 'Team',
-    rules: 'Settings',
+    'task-types': 'Task types',
   };
   return `<div class="notice notice-info">
     <strong>${escapeHtml(names[redirectedFrom] || 'That page')}</strong> needs a plan before it has anything to show. Create one below and you'll be sent straight there.
@@ -205,6 +205,67 @@ function optionList(pairs, selected) {
     .join('');
 }
 
+/** Normalize select options: main stores string[]; tolerate {value,label} objects. */
+function fieldOptionPairs(options) {
+  if (!Array.isArray(options)) return [];
+  return options
+    .map((o) => {
+      if (o && typeof o === 'object') {
+        const value = String(o.value ?? o.label ?? '').trim();
+        const label = String(o.label ?? o.value ?? '').trim();
+        return value ? [value, label || value] : null;
+      }
+      const s = String(o).trim();
+      return s ? [s, s] : null;
+    })
+    .filter(Boolean);
+}
+
+function renderCustomTypeFields(matchedType, attrs) {
+  const fields = matchedType?.fields || [];
+  if (!fields.length) return '';
+
+  const inputs = fields
+    .map((field) => {
+      const value = attrs[field.key];
+      const strVal = value == null ? '' : String(value);
+      let control = '';
+      if (field.field_type === 'select') {
+        const pairs = fieldOptionPairs(field.options);
+        control = `<select class="input input-sm" data-attr-field="${escapeHtml(field.key)}" aria-label="${escapeHtml(field.label)}">
+          <option value="">—</option>
+          ${optionList(pairs, strVal)}
+        </select>`;
+      } else if (field.field_type === 'number') {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="number" step="any"
+          value="${escapeHtml(strVal)}" aria-label="${escapeHtml(field.label)}" />`;
+      } else if (field.field_type === 'date') {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="date"
+          value="${escapeHtml(strVal.slice(0, 10))}" aria-label="${escapeHtml(field.label)}" />`;
+      } else {
+        control = `<input class="input input-sm" data-attr-field="${escapeHtml(field.key)}" type="text"
+          value="${escapeHtml(strVal)}" aria-label="${escapeHtml(field.label)}" />`;
+      }
+      return `
+        <label class="field">
+          <span class="field-label">${escapeHtml(field.label)}${field.required ? ' *' : ''}</span>
+          ${control}
+        </label>`;
+    })
+    .join('');
+
+  return `
+    <div class="gate-drawer-head" style="margin-top:4px">
+      <div>
+        <div class="gate-drawer-title">${escapeHtml(matchedType.label)} fields</div>
+        <p class="gate-drawer-hint">Tracked on this type — edit freely; values save with the row.</p>
+      </div>
+    </div>
+    <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:16px">
+      ${inputs}
+    </div>`;
+}
+
 function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
   if (!expanded) return '';
 
@@ -270,6 +331,8 @@ function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
               <input class="input input-sm" data-field="phase" value="${escapeHtml(item.phase || '')}" placeholder="—" />
             </label>
           </div>
+
+          ${renderCustomTypeFields(matchedType, attrs)}
 
           <div class="gate-drawer-head">
             <div>
@@ -564,9 +627,91 @@ function teamTabs(teams, activeTeam) {
   return `<div class="pill-tabs">${tabs.join('')}</div>`;
 }
 
+/** Collapsible planning-rules panel — lives on Capacity, not its own tab. */
+function renderPlanningRulesPanel(state) {
+  const policy = state.policy?.config || {};
+  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
+
+  const fields = [
+    ['policy-weekly', 'Default hours per week', policy.weekly_capacity_default ?? 32, 1, 'Used for anyone without their own number on the Team page.'],
+    ['policy-yellow', 'Amber below (hours left)', policy.band_yellow_remaining ?? 8, 1, 'A cell turns amber once someone has fewer than this many hours spare.'],
+    ['policy-threshold', 'Overload at (× capacity)', policy.overload_threshold ?? 1, 0.05, 'Where red starts. 1 means red as soon as planned hours pass available hours.'],
+    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out Alerts looks for upcoming due dates.'],
+    ['policy-review', 'Review ratio', policy.review_ratio ?? 0.35, 0.01, 'Extra review effort added on top of each item, as a fraction of its hours.'],
+    ['policy-review-floor', 'Minimum review hours', policy.review_floor_hours ?? 0, 0.5, 'Review effort never drops below this, however small the item.'],
+  ];
+
+  return `
+    <section class="panel">
+      <details class="disclosure" id="rules-disclosure" style="border-top:none;padding-top:0"${state.rulesSectionOpen ? ' open' : ''}>
+        <summary>Planning rules</summary>
+        <div class="disclosure-body">
+          <p class="field-hint" style="margin:0">
+            How <strong>${escapeHtml(cycle?.name || 'this plan')}</strong> decides what counts as tight or overloaded.
+            These apply to this plan only — they shape the colours on the grid above.
+          </p>
+
+          <div class="panel-head" style="padding:0;border:0">
+            <h2 class="section-title">Thresholds</h2>
+            <button type="button" class="btn btn-primary btn-sm" id="save-policy">Save rules</button>
+          </div>
+          <div class="form-grid">
+            ${fields
+              .map(
+                ([id, label, value, step, hint]) => `
+              <label class="field">
+                <span class="field-label">${escapeHtml(label)}</span>
+                <input id="${id}" class="input" type="number" step="${step}" value="${escapeHtml(String(value))}" />
+                <span class="field-hint">${escapeHtml(hint)}</span>
+              </label>`,
+              )
+              .join('')}
+          </div>
+
+          <div>
+            <h2 class="section-title" style="margin-bottom:8px">Default tracking granularity</h2>
+            <p class="section-sub" style="margin-bottom:10px">Sets the default columns for this plan's capacity grid.</p>
+            <div class="toggle-group" role="group" aria-label="Tracking granularity">
+              ${['week', 'month']
+                .map(
+                  (g) =>
+                    `<button type="button" class="toggle-btn${(policy.tracking_granularity || 'week') === g ? ' active' : ''}" data-granularity="${g}">${g[0].toUpperCase()}${g.slice(1)}</button>`,
+                )
+                .join('')}
+            </div>
+            ${policy.tracking_granularity === 'day'
+              ? `<p class="field-hint" style="margin-top:10px">
+                   This plan was set to day-level tracking, which the capacity grid doesn't draw yet —
+                   it's showing weeks. Pick one above to make that explicit.
+                 </p>`
+              : ''}
+          </div>
+
+          <div>
+            <h2 class="section-title" style="margin-bottom:12px">Recent changes</h2>
+            ${(state.changelog || []).length
+              ? `<ul style="list-style:none;display:flex;flex-direction:column;gap:8px;margin:0;padding:0">
+                   ${state.changelog
+                     .slice(0, 20)
+                     .map(
+                       (e) => `<li style="font-size:0.85rem;display:flex;gap:12px">
+                         <span class="mono" style="color:var(--faint);white-space:nowrap">${escapeHtml(new Date(e.created_at).toLocaleDateString())}</span>
+                         <span>${escapeHtml(e.summary)}</span>
+                       </li>`,
+                     )
+                     .join('')}
+                 </ul>`
+              : '<p class="field-hint" style="margin:0">Nothing logged yet.</p>'}
+          </div>
+        </div>
+      </details>
+    </section>`;
+}
+
 export function renderCapacityView({ state }) {
   const progress = getSetupProgress(state);
   const grid = state.capacity;
+  const rulesPanel = renderPlanningRulesPanel(state);
 
   const head = `
     <div class="page-head">
@@ -587,7 +732,8 @@ export function renderCapacityView({ state }) {
           at least one person. Add your team and this grid fills itself in.
         </p>
         <a class="btn btn-primary" href="#/team">Add your team</a>
-      </div>`;
+      </div>
+      ${rulesPanel}`;
   }
 
   if (!progress.hasWork) {
@@ -596,11 +742,12 @@ export function renderCapacityView({ state }) {
         <span class="empty-title">No work to measure</span>
         <p class="empty-body">Your team is set up, but there's nothing planned against them yet. List some work and it'll land here.</p>
         <a class="btn btn-primary" href="#/planner">Go to the Planner</a>
-      </div>`;
+      </div>
+      ${rulesPanel}`;
   }
 
   if (!grid) {
-    return `${head}<section class="panel"><p class="page-lead">Loading capacity…</p></section>`;
+    return `${head}<section class="panel"><p class="page-lead">Loading capacity…</p></section>${rulesPanel}`;
   }
 
   const granularity = grid.granularity || state.capacityGranularity || 'week';
@@ -689,6 +836,8 @@ export function renderCapacityView({ state }) {
         </table>
       </div>
     </section>
+
+    ${rulesPanel}
   `;
 }
 
@@ -1074,8 +1223,8 @@ export function renderTaskTypesView({ state }) {
         <p class="eyebrow">Task types</p>
         <h1 class="page-title">Kinds of work</h1>
         <p class="page-lead">
-          Custom types for the Planner dropdown. Attach an ordered gate template and custom
-          fields to any type — fields map onto CSV import columns.
+          Custom types for the Planner dropdown. Attach fields (with value options) and
+          a gate template to any type — fields show on Planner rows and map onto CSV import.
         </p>
       </div>
       <div class="btn-row">
@@ -1111,92 +1260,6 @@ export function renderTaskTypesView({ state }) {
            <span class="empty-title">No types yet</span>
            <p class="empty-body">Add your first type above. The usual defaults appear once this workspace loads its catalog.</p>
          </div>`}
-  `;
-}
-
-/* ── Settings (planning rules) ────────────────────────────────────────── */
-
-export function renderRulesView({ state }) {
-  const policy = state.policy?.config || {};
-  const cycle = state.cycles.find((c) => c.id === state.activeCycleId);
-
-  const fields = [
-    ['policy-weekly', 'Default hours per week', policy.weekly_capacity_default ?? 32, 1, 'Used for anyone without their own number on the Team page.'],
-    ['policy-yellow', 'Amber below (hours left)', policy.band_yellow_remaining ?? 8, 1, 'A cell turns amber once someone has fewer than this many hours spare.'],
-    ['policy-threshold', 'Overload at (× capacity)', policy.overload_threshold ?? 1, 0.05, 'Where red starts. 1 means red as soon as planned hours pass available hours.'],
-    ['policy-proximity', 'Warn this many days ahead', policy.alert_proximity_days ?? 14, 1, 'How far out Alerts looks for upcoming due dates.'],
-    ['policy-review', 'Review ratio', policy.review_ratio ?? 0.35, 0.01, 'Extra review effort added on top of each item, as a fraction of its hours.'],
-    ['policy-review-floor', 'Minimum review hours', policy.review_floor_hours ?? 0, 0.5, 'Review effort never drops below this, however small the item.'],
-  ];
-
-  return `
-    <div class="page-head">
-      <p class="eyebrow">Settings</p>
-      <h1 class="page-title">Planning rules</h1>
-      <p class="page-lead">
-        How <strong>${escapeHtml(cycle?.name || 'this plan')}</strong> decides what counts as tight or overloaded.
-        These apply to this plan only.
-      </p>
-    </div>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2 class="section-title">Thresholds</h2>
-        <button type="button" class="btn btn-primary btn-sm" id="save-policy">Save rules</button>
-      </div>
-      <div class="form-grid">
-        ${fields
-          .map(
-            ([id, label, value, step, hint]) => `
-          <label class="field">
-            <span class="field-label">${escapeHtml(label)}</span>
-            <input id="${id}" class="input" type="number" step="${step}" value="${escapeHtml(String(value))}" />
-            <span class="field-hint">${escapeHtml(hint)}</span>
-          </label>`,
-          )
-          .join('')}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <div>
-          <h2 class="section-title">Tracking granularity</h2>
-          <p class="section-sub">Changes the columns on the capacity grid.</p>
-        </div>
-      </div>
-      <div class="toggle-group" role="group" aria-label="Tracking granularity">
-        ${['week', 'month']
-          .map(
-            (g) =>
-              `<button type="button" class="toggle-btn${(policy.tracking_granularity || 'week') === g ? ' active' : ''}" data-granularity="${g}">${g[0].toUpperCase()}${g.slice(1)}</button>`,
-          )
-          .join('')}
-      </div>
-      ${policy.tracking_granularity === 'day'
-        ? `<p class="field-hint" style="margin-top:10px">
-             This plan was set to day-level tracking, which the capacity grid doesn't draw yet —
-             it's showing weeks. Pick one above to make that explicit.
-           </p>`
-        : ''}
-    </section>
-
-    <section class="panel">
-      <h2 class="section-title" style="margin-bottom:12px">Recent changes</h2>
-      ${(state.changelog || []).length
-        ? `<ul style="list-style:none;display:flex;flex-direction:column;gap:8px">
-             ${state.changelog
-               .slice(0, 20)
-               .map(
-                 (e) => `<li style="font-size:0.85rem;display:flex;gap:12px">
-                   <span class="mono" style="color:var(--faint);white-space:nowrap">${escapeHtml(new Date(e.created_at).toLocaleDateString())}</span>
-                   <span>${escapeHtml(e.summary)}</span>
-                 </li>`,
-               )
-               .join('')}
-           </ul>`
-        : '<p class="field-hint">Nothing logged yet.</p>'}
-    </section>
   `;
 }
 
@@ -1264,7 +1327,7 @@ export function renderGuideView({ state }) {
             <span class="guide-step-num">4</span>
             <h3>Check capacity</h3>
           </div>
-          <p>Every person against every period. The top number in a cell is hours planned; below it is hours left.</p>
+          <p>Every person against every period. The top number in a cell is hours planned; below it is hours left. Open <strong>Planning rules</strong> at the bottom of the page to tune what counts as amber or red.</p>
           <ul>
             <li><span class="badge badge-ok">Green</span> room to spare</li>
             <li><span class="badge badge-warn">Amber</span> getting tight — no slack for surprises</li>

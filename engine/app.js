@@ -34,7 +34,6 @@ import {
   renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
-  renderRulesView,
   renderGuideView,
   planOptions,
   workspaceOptions,
@@ -68,6 +67,7 @@ const state = {
   importCsvText: '',
   importSectionOpen: false,
   importTaskTypeId: '',
+  rulesSectionOpen: false,
   changelog: [],
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
@@ -120,7 +120,7 @@ function captureGridEdits() {
     if (taskType !== undefined) item.attributes.task_type = taskType;
   }
 
-  // Detail drawers carry duration/phase plus the gate rows.
+  // Detail drawers carry duration/phase, custom type fields, plus the gate rows.
   for (const drawer of document.querySelectorAll('.gate-drawer[data-drawer-for]')) {
     const item = state.planItems.find((p) => p.id === drawer.dataset.drawerFor);
     if (!item) continue;
@@ -131,6 +131,20 @@ function captureGridEdits() {
       item.attributes.duration_days = days === '' ? undefined : Number(days);
     }
     if (phase !== undefined) item.phase = phase || null;
+
+    for (const el of drawer.querySelectorAll('[data-attr-field]')) {
+      const key = el.dataset.attrField;
+      if (!key) continue;
+      const raw = el.value;
+      if (raw === '' || raw == null) {
+        delete item.attributes[key];
+      } else if (el.type === 'number') {
+        const n = Number(raw);
+        item.attributes[key] = Number.isFinite(n) ? n : raw;
+      } else {
+        item.attributes[key] = raw;
+      }
+    }
 
     for (const gate of drawer.querySelectorAll('.gate-item[data-dep-id]')) {
       const dep = state.dependencies.find((d) => d.id === gate.dataset.depId);
@@ -458,9 +472,10 @@ async function loadChangelog() {
 
 /** Loads whatever the given route needs beyond core data. */
 async function loadForRoute(route) {
-  if (route === 'capacity') await loadCapacity();
+  if (route === 'capacity') {
+    await Promise.all([loadCapacity(), loadChangelog()]);
+  }
   if (route === 'alerts') await loadAlerts();
-  if (route === 'rules') await loadChangelog();
 }
 
 /* ── Saving ───────────────────────────────────────────────────────────── */
@@ -846,7 +861,16 @@ function wirePlansEvents() {
 function wirePlannerEvents() {
   const table = document.querySelector('.planner-table');
   table?.addEventListener('input', markDirty);
-  table?.addEventListener('change', markDirty);
+  table?.addEventListener('change', (e) => {
+    markDirty();
+    if (e.target?.dataset?.field === 'task_type') {
+      const row = e.target.closest('.planner-row[data-id]');
+      if (row && state.expandedRows.has(row.dataset.id)) {
+        captureGridEdits();
+        render();
+      }
+    }
+  });
 
   document.getElementById('save-planner')?.addEventListener('click', (e) =>
     guard(() => withBusy(e.currentTarget, 'Saving…', () => savePlannerGrid()).then(render)),
@@ -1208,6 +1232,35 @@ function wireCapacityEvents() {
   document.getElementById('export-capacity')?.addEventListener('click', () =>
     guard(() => downloadExport('capacity')),
   );
+
+  document.getElementById('rules-disclosure')?.addEventListener('toggle', (e) => {
+    state.rulesSectionOpen = e.target.open;
+  });
+
+  document.getElementById('save-policy')?.addEventListener('click', (e) =>
+    guard(() =>
+      withBusy(e.currentTarget, 'Saving…', async () => {
+        await savePolicy({});
+        await loadCapacity();
+        await loadChangelog();
+        toast('Rules saved');
+        render();
+      }),
+    ),
+  );
+
+  document.querySelectorAll('[data-granularity]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await savePolicy({ tracking_granularity: btn.dataset.granularity });
+        state.capacityGranularity = btn.dataset.granularity === 'day' ? 'week' : btn.dataset.granularity;
+        state.rulesSectionOpen = true;
+        await loadCapacity();
+        toast(`Now tracking by ${btn.dataset.granularity}`);
+        render();
+      }),
+    );
+  });
 }
 
 /* ── Team events ──────────────────────────────────────────────────────── */
@@ -1484,30 +1537,7 @@ function wireTaskTypesEvents() {
   });
 }
 
-/* ── Rules events ─────────────────────────────────────────────────────── */
-
-function wireRulesEvents() {
-  document.getElementById('save-policy')?.addEventListener('click', (e) =>
-    guard(() =>
-      withBusy(e.currentTarget, 'Saving…', async () => {
-        await savePolicy({});
-        toast('Rules saved');
-        render();
-      }),
-    ),
-  );
-
-  document.querySelectorAll('[data-granularity]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        await savePolicy({ tracking_granularity: btn.dataset.granularity });
-        state.capacityGranularity = btn.dataset.granularity === 'day' ? 'week' : btn.dataset.granularity;
-        toast(`Now tracking by ${btn.dataset.granularity}`);
-        render();
-      }),
-    );
-  });
-}
+/* ── Rules helpers (wired from Capacity) ──────────────────────────────── */
 
 async function savePolicy(overrides) {
   if (!state.activeCycleId) return;
@@ -1607,7 +1637,6 @@ function render() {
   else if (route === 'alerts') body = renderAlertsView({ state });
   else if (route === 'team') body = renderTeamView({ state });
   else if (route === 'task-types') body = renderTaskTypesView({ state });
-  else if (route === 'rules') body = renderRulesView({ state });
   else body = renderGuideView({ state });
 
   root.innerHTML = renderShell({
@@ -1633,7 +1662,6 @@ function render() {
   else if (route === 'capacity') wireCapacityEvents();
   else if (route === 'team') wireTeamEvents();
   else if (route === 'task-types') wireTaskTypesEvents();
-  else if (route === 'rules') wireRulesEvents();
   else if (route === 'alerts') {
     document.getElementById('refresh-alerts')?.addEventListener('click', (e) =>
       guard(() =>

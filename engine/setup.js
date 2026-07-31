@@ -1,20 +1,21 @@
 /**
  * Routing, onboarding progress, and sidebar nav.
  *
- * Route names describe what the page is for. The old pair — `settings` labelled
- * "Setup" sitting next to `preferences` labelled "Settings" — inverted labels
- * and routes against each other, so both names are retired here and aliased.
+ * Route names describe what the page is for. Legacy aliases keep old bookmarks
+ * working: `settings` → Plans, `preferences` / `rules` → Capacity (where
+ * planning rules now live).
  */
 
-export const ROUTES = ['planner', 'capacity', 'alerts', 'team', 'task-types', 'plans', 'rules', 'guide'];
+export const ROUTES = ['planner', 'capacity', 'alerts', 'team', 'task-types', 'plans', 'guide'];
 
 /** Routes that need a workspace + plan before they can show anything. */
-const NEEDS_PLAN = new Set(['planner', 'capacity', 'alerts', 'team', 'task-types', 'rules']);
+const NEEDS_PLAN = new Set(['planner', 'capacity', 'alerts', 'team', 'task-types']);
 
 const LEGACY_ROUTES = {
   home: 'guide',
   settings: 'plans',
-  preferences: 'rules',
+  preferences: 'capacity',
+  rules: 'capacity',
   plan: 'planner',
   dependencies: 'planner',
   setup: 'plans',
@@ -121,7 +122,6 @@ export function navItems(state) {
       lockedTitle,
     },
     { id: 'plans', label: 'Plans', next: next === 'plans' },
-    { id: 'rules', label: 'Settings', locked, lockedHint: 'needs a plan', lockedTitle },
     { id: 'guide', label: 'How it works' },
   ];
 }
