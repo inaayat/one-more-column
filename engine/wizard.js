@@ -213,7 +213,7 @@ function stepPlan(wizard, state) {
 
       <div class="field">
         <span class="field-label">Track work by</span>
-        <p class="field-hint">Sets the columns on your capacity grid. You can change it later in Settings.</p>
+        <p class="field-hint">Sets the columns on your capacity grid. You can change it later under Planning rules on Capacity.</p>
         ${granularityChoices(wizard.granularity)}
       </div>
 

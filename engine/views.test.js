@@ -18,7 +18,6 @@ import {
   renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
-  renderRulesView,
   renderGuideView,
   planOptions,
   workspaceOptions,
@@ -59,6 +58,7 @@ const emptyState = {
   isDirty: false,
   teamDirty: false,
   taskTypesDirty: false,
+  rulesSectionOpen: false,
   wizard: blankWizard(),
 };
 
@@ -199,7 +199,6 @@ const views = {
   alerts: (s) => renderAlertsView({ state: s }),
   team: (s) => renderTeamView({ state: s }),
   'task-types': (s) => renderTaskTypesView({ state: s }),
-  rules: (s) => renderRulesView({ state: s }),
   guide: (s) => renderGuideView({ state: s }),
 };
 
@@ -268,7 +267,8 @@ test('wizard only offers granularities the capacity grid can draw', () => {
 test('legacy hashes still resolve', () => {
   assert.equal(normalizeRoute('home'), 'guide');
   assert.equal(normalizeRoute('settings'), 'plans');
-  assert.equal(normalizeRoute('preferences'), 'rules');
+  assert.equal(normalizeRoute('preferences'), 'capacity');
+  assert.equal(normalizeRoute('rules'), 'capacity');
   assert.equal(normalizeRoute('dependencies'), 'planner');
   assert.equal(normalizeRoute('nonsense'), 'planner');
 });
@@ -290,6 +290,14 @@ test('onboarding sends new users to Plans and returning users to Planner', () =>
   assert.equal(getInitialRoute(fullState), 'planner');
   assert.equal(getSetupProgress(emptyState).nextStep.id, 'plan');
   assert.equal(getSetupProgress(fullState).capacityReady, true);
+});
+
+test('capacity embeds planning rules as a disclosure, not a separate tab', () => {
+  const out = renderCapacityView({ state: fullState });
+  assert.ok(out.includes('id="rules-disclosure"'));
+  assert.ok(out.includes('Planning rules'));
+  assert.ok(out.includes('id="save-policy"'));
+  assert.ok(!navItems(fullState).some((n) => n.id === 'rules'), 'Settings tab should be gone');
 });
 
 test('user-supplied text is escaped, not executed', () => {

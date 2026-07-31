@@ -34,7 +34,6 @@ import {
   renderAlertsView,
   renderTeamView,
   renderTaskTypesView,
-  renderRulesView,
   renderGuideView,
   planOptions,
   workspaceOptions,
@@ -68,6 +67,7 @@ const state = {
   importCsvText: '',
   importSectionOpen: false,
   importTaskTypeId: '',
+  rulesSectionOpen: false,
   changelog: [],
   alerts: [],
   alertCounts: { high: 0, medium: 0, low: 0 },
@@ -458,9 +458,10 @@ async function loadChangelog() {
 
 /** Loads whatever the given route needs beyond core data. */
 async function loadForRoute(route) {
-  if (route === 'capacity') await loadCapacity();
+  if (route === 'capacity') {
+    await Promise.all([loadCapacity(), loadChangelog()]);
+  }
   if (route === 'alerts') await loadAlerts();
-  if (route === 'rules') await loadChangelog();
 }
 
 /* ── Saving ───────────────────────────────────────────────────────────── */
@@ -1208,6 +1209,35 @@ function wireCapacityEvents() {
   document.getElementById('export-capacity')?.addEventListener('click', () =>
     guard(() => downloadExport('capacity')),
   );
+
+  document.getElementById('rules-disclosure')?.addEventListener('toggle', (e) => {
+    state.rulesSectionOpen = e.target.open;
+  });
+
+  document.getElementById('save-policy')?.addEventListener('click', (e) =>
+    guard(() =>
+      withBusy(e.currentTarget, 'Saving…', async () => {
+        await savePolicy({});
+        await loadCapacity();
+        await loadChangelog();
+        toast('Rules saved');
+        render();
+      }),
+    ),
+  );
+
+  document.querySelectorAll('[data-granularity]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        await savePolicy({ tracking_granularity: btn.dataset.granularity });
+        state.capacityGranularity = btn.dataset.granularity === 'day' ? 'week' : btn.dataset.granularity;
+        state.rulesSectionOpen = true;
+        await loadCapacity();
+        toast(`Now tracking by ${btn.dataset.granularity}`);
+        render();
+      }),
+    );
+  });
 }
 
 /* ── Team events ──────────────────────────────────────────────────────── */
@@ -1484,30 +1514,7 @@ function wireTaskTypesEvents() {
   });
 }
 
-/* ── Rules events ─────────────────────────────────────────────────────── */
-
-function wireRulesEvents() {
-  document.getElementById('save-policy')?.addEventListener('click', (e) =>
-    guard(() =>
-      withBusy(e.currentTarget, 'Saving…', async () => {
-        await savePolicy({});
-        toast('Rules saved');
-        render();
-      }),
-    ),
-  );
-
-  document.querySelectorAll('[data-granularity]').forEach((btn) => {
-    btn.addEventListener('click', () =>
-      guard(async () => {
-        await savePolicy({ tracking_granularity: btn.dataset.granularity });
-        state.capacityGranularity = btn.dataset.granularity === 'day' ? 'week' : btn.dataset.granularity;
-        toast(`Now tracking by ${btn.dataset.granularity}`);
-        render();
-      }),
-    );
-  });
-}
+/* ── Rules helpers (wired from Capacity) ──────────────────────────────── */
 
 async function savePolicy(overrides) {
   if (!state.activeCycleId) return;
@@ -1607,7 +1614,6 @@ function render() {
   else if (route === 'alerts') body = renderAlertsView({ state });
   else if (route === 'team') body = renderTeamView({ state });
   else if (route === 'task-types') body = renderTaskTypesView({ state });
-  else if (route === 'rules') body = renderRulesView({ state });
   else body = renderGuideView({ state });
 
   root.innerHTML = renderShell({
@@ -1633,7 +1639,6 @@ function render() {
   else if (route === 'capacity') wireCapacityEvents();
   else if (route === 'team') wireTeamEvents();
   else if (route === 'task-types') wireTaskTypesEvents();
-  else if (route === 'rules') wireRulesEvents();
   else if (route === 'alerts') {
     document.getElementById('refresh-alerts')?.addEventListener('click', (e) =>
       guard(() =>
