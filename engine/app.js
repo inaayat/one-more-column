@@ -515,9 +515,16 @@ function wireWizardEvents() {
     });
   });
 
-  // Keep the plain-English summary in step with what's typed.
+  // Keep the plain-English summary in step with what's typed, but only once
+  // the field is actually done being edited. A native date input reports
+  // `change` mid-keystroke while a segment is still incomplete — most often
+  // while typing the year, since it needs 4 digits against 2 for month/day.
+  // Re-rendering on that recreates the <input>, which resets focus to its
+  // first segment: type "2026" and after the first "2" the next keystroke
+  // lands back on the month instead of continuing the year. `blur` only fires
+  // once the user actually leaves the field, so no re-render happens mid-type.
   ['wiz-name', 'wiz-start', 'wiz-end'].forEach((id) => {
-    document.getElementById(id)?.addEventListener('change', rerender);
+    document.getElementById(id)?.addEventListener('blur', rerender);
   });
 
   document.getElementById('wiz-next')?.addEventListener('click', () => {
