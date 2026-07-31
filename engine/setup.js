@@ -6,10 +6,10 @@
  * and routes against each other, so both names are retired here and aliased.
  */
 
-export const ROUTES = ['planner', 'capacity', 'alerts', 'team', 'plans', 'rules', 'guide'];
+export const ROUTES = ['planner', 'capacity', 'alerts', 'team', 'task-types', 'plans', 'rules', 'guide'];
 
 /** Routes that need a workspace + plan before they can show anything. */
-const NEEDS_PLAN = new Set(['planner', 'capacity', 'alerts', 'team', 'rules']);
+const NEEDS_PLAN = new Set(['planner', 'capacity', 'alerts', 'team', 'task-types', 'rules']);
 
 const LEGACY_ROUTES = {
   home: 'guide',
@@ -112,6 +112,13 @@ export function navItems(state) {
       lockedHint: 'needs a plan',
       lockedTitle,
       next: next === 'team',
+    },
+    {
+      id: 'task-types',
+      label: 'Task types',
+      locked,
+      lockedHint: 'needs a plan',
+      lockedTitle,
     },
     { id: 'plans', label: 'Plans', next: next === 'plans' },
     { id: 'rules', label: 'Settings', locked, lockedHint: 'needs a plan', lockedTitle },

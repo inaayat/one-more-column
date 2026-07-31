@@ -17,6 +17,7 @@ import {
   renderCapacityView,
   renderAlertsView,
   renderTeamView,
+  renderTaskTypesView,
   renderRulesView,
   renderGuideView,
   planOptions,
@@ -41,6 +42,7 @@ const emptyState = {
   activeScenarioId: null,
   resources: [],
   teams: [],
+  taskTypes: [],
   policy: null,
   capacity: null,
   planItems: [],
@@ -53,8 +55,10 @@ const emptyState = {
   activeTeamFilter: '',
   capacityGranularity: 'week',
   expandedRows: new Set(),
+  expandedTaskTypes: new Set(),
   isDirty: false,
   teamDirty: false,
+  taskTypesDirty: false,
   wizard: blankWizard(),
 };
 
@@ -86,6 +90,38 @@ const fullState = {
     { id: 'r2', name: 'Sam Lee', team: null, profiles: [], time_off: [] },
   ],
   teams: ['Analyst'],
+  taskTypes: [
+    {
+      id: 'tt1',
+      key: 'general',
+      label: 'General',
+      gate_templates: [],
+    },
+    {
+      id: 'tt2',
+      key: 'deliverable',
+      label: 'Deliverable',
+      gate_templates: [
+        {
+          id: 'gs1',
+          label: 'Obtain population',
+          duration_days: 7,
+          day_kind: 'business',
+          dep_type: 'input_ready',
+        },
+      ],
+    },
+    {
+      id: 'tt3',
+      key: 'control_testing',
+      label: 'Control Testing',
+      gate_templates: [
+        { id: 'gs2', label: 'Obtain population', duration_days: 7, day_kind: 'business', dep_type: 'input_ready' },
+        { id: 'gs3', label: 'Select samples', duration_days: 7, day_kind: 'business', dep_type: 'sample_chain' },
+        { id: 'gs4', label: 'Get sample support', duration_days: 7, day_kind: 'business', dep_type: 'input_ready' },
+      ],
+    },
+  ],
   policy: { config: { tracking_granularity: 'week', weekly_capacity_default: 32 } },
   planItems: [
     {
@@ -137,8 +173,10 @@ const fullState = {
   ],
   alertCounts: { high: 1, medium: 1, low: 1 },
   expandedRows: new Set(['p1']),
+  expandedTaskTypes: new Set(['tt3']),
   isDirty: true,
   teamDirty: true,
+  taskTypesDirty: false,
 };
 
 const views = {
@@ -147,6 +185,7 @@ const views = {
   capacity: (s) => renderCapacityView({ state: s }),
   alerts: (s) => renderAlertsView({ state: s }),
   team: (s) => renderTeamView({ state: s }),
+  'task-types': (s) => renderTaskTypesView({ state: s }),
   rules: (s) => renderRulesView({ state: s }),
   guide: (s) => renderGuideView({ state: s }),
 };
@@ -247,6 +286,26 @@ test('user-supplied text is escaped, not executed', () => {
 
   const planner = renderPlannerView({ state: fullState });
   assert.ok(!planner.includes('<script>'), 'raw script tag survived into the planner');
+});
+
+test('planner shows Apply gate template when the row type has steps', () => {
+  const planner = renderPlannerView({ state: fullState });
+  assert.ok(planner.includes('data-apply-gate-template="p1"'), 'deliverable with a template should offer Apply');
+  assert.ok(planner.includes('Control Testing'), 'custom types appear in the type dropdown');
+});
+
+test('task types view lists nested gate steps for an expanded type', () => {
+  const out = renderTaskTypesView({ state: fullState });
+  assert.ok(out.includes('Control Testing'));
+  assert.ok(out.includes('Obtain population'));
+  assert.ok(out.includes('Select samples'));
+  assert.ok(out.includes('data-add-step="tt3"'));
+});
+
+test('task-types route is gated until a plan exists', () => {
+  assert.equal(resolveRoute('task-types', emptyState).route, 'plans');
+  assert.equal(resolveRoute('task-types', fullState).route, 'task-types');
+  assert.ok(navItems(fullState).some((n) => n.id === 'task-types'));
 });
 
 test('gated nav items render as text, not as links that bounce', () => {

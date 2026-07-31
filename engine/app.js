@@ -14,6 +14,7 @@ import {
   alertsApi,
   exportApi,
   timeOffApi,
+  taskTypesApi,
 } from './api.js';
 import {
   renderShell,
@@ -32,6 +33,7 @@ import {
   renderCapacityView,
   renderAlertsView,
   renderTeamView,
+  renderTaskTypesView,
   renderRulesView,
   renderGuideView,
   planOptions,
@@ -56,6 +58,7 @@ const state = {
   activeScenarioId: null,
   resources: [],
   teams: [],
+  taskTypes: [],
   policy: null,
   capacity: null,
   planItems: [],
@@ -74,9 +77,12 @@ const state = {
 
   /** Rows whose detail drawer is open, kept across re-renders. */
   expandedRows: new Set(),
-  /** Unsaved edits pending in the planner grid / team table. */
+  /** Task types whose gate-template drawer is open. */
+  expandedTaskTypes: new Set(),
+  /** Unsaved edits pending in the planner grid / team table / task types. */
   isDirty: false,
   teamDirty: false,
+  taskTypesDirty: false,
   redirectedFrom: null,
   wizard: blankWizard(),
 };
@@ -158,6 +164,30 @@ function captureTeamEdits() {
   }
 }
 
+function captureTaskTypeEdits() {
+  for (const row of document.querySelectorAll('#task-types-table tbody tr[data-id]')) {
+    const type = state.taskTypes.find((t) => t.id === row.dataset.id);
+    if (!type) continue;
+    const label = row.querySelector('[data-field="label"]')?.value;
+    if (label !== undefined) type.label = label;
+  }
+
+  for (const row of document.querySelectorAll('#task-types-table tr[data-step-id]')) {
+    const type = state.taskTypes.find((t) => t.id === row.dataset.typeId);
+    if (!type) continue;
+    const step = (type.gate_templates || []).find((s) => s.id === row.dataset.stepId);
+    if (!step) continue;
+    const label = row.querySelector('[data-step-field="label"]')?.value;
+    const days = row.querySelector('[data-step-field="duration_days"]')?.value;
+    const dayKind = row.querySelector('[data-step-field="day_kind"]')?.value;
+    const depType = row.querySelector('[data-step-field="dep_type"]')?.value;
+    if (label !== undefined) step.label = label;
+    if (days !== undefined) step.duration_days = Number(days) || 1;
+    if (dayKind !== undefined) step.day_kind = dayKind;
+    if (depType !== undefined) step.dep_type = depType;
+  }
+}
+
 function captureWizardFields() {
   const wizard = state.wizard;
   const val = (id) => document.getElementById(id)?.value;
@@ -197,6 +227,7 @@ function captureAll() {
   }
   if (route === 'planner') captureGridEdits();
   if (route === 'team') captureTeamEdits();
+  if (route === 'task-types') captureTaskTypeEdits();
   if (route === 'plans' && state.wizard.open) captureWizardFields();
 }
 
@@ -221,6 +252,17 @@ function markTeamDirty() {
   if (state.teamDirty) return;
   state.teamDirty = true;
   const save = document.getElementById('save-team');
+  if (save) save.disabled = false;
+  const bar = save?.closest('.btn-row');
+  if (bar && !bar.querySelector('.dirty-flag')) {
+    bar.insertAdjacentHTML('afterbegin', '<span class="dirty-flag">Unsaved changes</span>');
+  }
+}
+
+function markTaskTypesDirty() {
+  if (state.taskTypesDirty) return;
+  state.taskTypesDirty = true;
+  const save = document.getElementById('save-task-types');
   if (save) save.disabled = false;
   const bar = save?.closest('.btn-row');
   if (bar && !bar.querySelector('.dirty-flag')) {
@@ -256,6 +298,7 @@ async function loadCoreData() {
       cycles: [],
       resources: [],
       teams: [],
+      taskTypes: [],
       policy: null,
       planItems: [],
       scenarios: [],
@@ -265,14 +308,17 @@ async function loadCoreData() {
     return;
   }
 
-  const [{ cycles }, { resources, teams }] = await Promise.all([
+  const [{ cycles }, { resources, teams }, { task_types }] = await Promise.all([
     cyclesApi.list(token, state.activeWorkspaceId),
     resourcesApi.list(token, state.activeWorkspaceId),
+    taskTypesApi.list(token, state.activeWorkspaceId),
   ]);
   state.cycles = cycles;
   state.resources = resources;
   state.teams = teams;
+  state.taskTypes = task_types || [];
   state.teamDirty = false;
+  state.taskTypesDirty = false;
   state.skipCapture = true;
 
   if (state.activeCycleId && !cycles.some((c) => c.id === state.activeCycleId)) {
@@ -427,6 +473,27 @@ async function saveTeam() {
   state.teamDirty = false;
   await loadCoreData();
   toast('Team saved');
+}
+
+async function saveTaskTypes() {
+  captureTaskTypeEdits();
+  for (const type of state.taskTypes) {
+    await taskTypesApi.patch(state.token, state.activeWorkspaceId, {
+      id: type.id,
+      label: type.label,
+      gate_templates: (type.gate_templates || []).map((s, i) => ({
+        id: s.id,
+        label: s.label,
+        duration_days: Number(s.duration_days) || 1,
+        day_kind: s.day_kind || 'business',
+        dep_type: s.dep_type || 'input_ready',
+        seq: i + 1,
+      })),
+    });
+  }
+  state.taskTypesDirty = false;
+  await loadCoreData();
+  toast('Task types saved');
 }
 
 /* ── Wizard ───────────────────────────────────────────────────────────── */
@@ -765,6 +832,41 @@ function wirePlannerEvents() {
         });
         state.expandedRows.add(btn.dataset.addGate);
         await loadScenarioData();
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-apply-gate-template]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        captureGridEdits();
+        const itemId = btn.dataset.applyGateTemplate;
+        const taskTypeId = btn.dataset.taskTypeId;
+        const item = state.planItems.find((p) => p.id === itemId);
+        const today = new Date().toISOString().slice(0, 10);
+        const defaultAnchor =
+          (item?.attributes?.start_date && String(item.attributes.start_date).slice(0, 10)) || today;
+
+        const result = await promptDialog({
+          title: 'Apply gate template',
+          body: 'Due dates are chained from this anchor — each step starts after the previous one finishes. You can edit any gate afterward.',
+          label: 'Anchor date',
+          value: defaultAnchor,
+          confirmLabel: 'Create gates',
+          inputType: 'date',
+        });
+        if (!result) return;
+
+        await flushPendingEdits();
+        const { count } = await dependenciesApi.applyGateTemplate(state.token, {
+          plan_item_id: itemId,
+          task_type_id: taskTypeId,
+          anchor_date: result.value,
+        });
+        state.expandedRows.add(itemId);
+        await loadScenarioData();
+        toast(`Added ${count} gate${count === 1 ? '' : 's'}`);
         render();
       }),
     );
@@ -1148,6 +1250,126 @@ function wireTeamEvents() {
   });
 }
 
+/* ── Task type events ─────────────────────────────────────────────────── */
+
+function wireTaskTypesEvents() {
+  const table = document.getElementById('task-types-table');
+  table?.addEventListener('input', markTaskTypesDirty);
+  table?.addEventListener('change', markTaskTypesDirty);
+
+  document.getElementById('save-task-types')?.addEventListener('click', (e) =>
+    guard(() => withBusy(e.currentTarget, 'Saving…', saveTaskTypes).then(render)),
+  );
+
+  document.getElementById('add-task-type')?.addEventListener('click', (e) =>
+    guard(async () => {
+      const label = document.getElementById('new-task-type-label')?.value?.trim();
+      if (!label) {
+        document.getElementById('new-task-type-label')?.focus();
+        toast('Give the type a name first', 'warn');
+        return;
+      }
+      await withBusy(e.currentTarget, 'Adding…', async () => {
+        captureTaskTypeEdits();
+        if (state.taskTypesDirty) await saveTaskTypes();
+        const { task_type } = await taskTypesApi.create(state.token, state.activeWorkspaceId, {
+          label,
+        });
+        state.expandedTaskTypes.add(task_type.id);
+        await loadCoreData();
+        render();
+        document.getElementById('new-task-type-label')?.focus();
+      });
+    }),
+  );
+
+  document.querySelectorAll('[data-toggle-type]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      captureTaskTypeEdits();
+      const id = btn.dataset.toggleType;
+      if (state.expandedTaskTypes.has(id)) state.expandedTaskTypes.delete(id);
+      else state.expandedTaskTypes.add(id);
+      render();
+    });
+  });
+
+  document.querySelectorAll('[data-delete-task-type]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const id = btn.dataset.deleteTaskType;
+        const type = state.taskTypes.find((t) => t.id === id);
+        const ok = await confirmDialog({
+          title: `Delete ${type?.label || 'this type'}?`,
+          body: 'Its gate template goes too. Existing plan rows keep their type key, but the dropdown option disappears.',
+          confirmLabel: 'Delete type',
+          danger: true,
+        });
+        if (!ok) return;
+        await taskTypesApi.delete(state.token, state.activeWorkspaceId, id);
+        state.expandedTaskTypes.delete(id);
+        state.taskTypesDirty = false;
+        await loadCoreData();
+        toast('Type deleted');
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-add-step]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        const typeId = btn.dataset.addStep;
+        const labelInput = document.querySelector(`[data-new-step-label="${typeId}"]`);
+        const label = labelInput?.value?.trim();
+        if (!label) {
+          labelInput?.focus();
+          toast('Give the step a name first', 'warn');
+          return;
+        }
+        captureTaskTypeEdits();
+        const type = state.taskTypes.find((t) => t.id === typeId);
+        if (!type) return;
+        const days = Number(document.querySelector(`[data-new-step-days="${typeId}"]`)?.value) || 7;
+        const dayKind =
+          document.querySelector(`[data-new-step-kind="${typeId}"]`)?.value || 'business';
+        if (!type.gate_templates) type.gate_templates = [];
+        type.gate_templates.push({
+          id: crypto.randomUUID(),
+          task_type_id: typeId,
+          seq: type.gate_templates.length + 1,
+          label,
+          duration_days: days,
+          day_kind: dayKind,
+          dep_type: 'input_ready',
+        });
+        state.expandedTaskTypes.add(typeId);
+        markTaskTypesDirty();
+        // Persist immediately so a refresh doesn't lose the new step, matching
+        // how team PTO creates server-side rather than only dirty-tracking.
+        await saveTaskTypes();
+        render();
+      }),
+    );
+  });
+
+  document.querySelectorAll('[data-delete-step]').forEach((btn) => {
+    btn.addEventListener('click', () =>
+      guard(async () => {
+        captureTaskTypeEdits();
+        const typeId = btn.dataset.typeId;
+        const stepId = btn.dataset.deleteStep;
+        const type = state.taskTypes.find((t) => t.id === typeId);
+        if (!type) return;
+        type.gate_templates = (type.gate_templates || []).filter((s) => s.id !== stepId);
+        markTaskTypesDirty();
+        await saveTaskTypes();
+        toast('Step removed');
+        render();
+      }),
+    );
+  });
+}
+
 /* ── Rules events ─────────────────────────────────────────────────────── */
 
 function wireRulesEvents() {
@@ -1270,6 +1492,7 @@ function render() {
   else if (route === 'capacity') body = renderCapacityView({ state });
   else if (route === 'alerts') body = renderAlertsView({ state });
   else if (route === 'team') body = renderTeamView({ state });
+  else if (route === 'task-types') body = renderTaskTypesView({ state });
   else if (route === 'rules') body = renderRulesView({ state });
   else body = renderGuideView({ state });
 
@@ -1295,6 +1518,7 @@ function render() {
   else if (route === 'planner') wirePlannerEvents();
   else if (route === 'capacity') wireCapacityEvents();
   else if (route === 'team') wireTeamEvents();
+  else if (route === 'task-types') wireTaskTypesEvents();
   else if (route === 'rules') wireRulesEvents();
   else if (route === 'alerts') {
     document.getElementById('refresh-alerts')?.addEventListener('click', (e) =>

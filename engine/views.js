@@ -140,7 +140,7 @@ export function renderPlansView({ state, redirectedFrom }) {
 
 /* ── Planner ──────────────────────────────────────────────────────────── */
 
-const TASK_TYPES = [
+const FALLBACK_TASK_TYPES = [
   ['general', 'General'],
   ['deliverable', 'Deliverable'],
   ['review', 'Review'],
@@ -152,6 +152,8 @@ const TASK_TYPES = [
 const GATE_TYPES = [
   ['input_ready', 'Something must be ready'],
   ['handoff_chain', 'Handoff from someone'],
+  ['sample_chain', 'Sample chain'],
+  ['evidence_ready', 'Evidence ready'],
   ['external_flag', 'Team agreement'],
   ['phase_gate', 'Phase milestone'],
   ['staffing', 'Need a person'],
@@ -166,6 +168,16 @@ const GATE_STATUSES = [
   ['blocked', 'Blocked'],
 ];
 
+const DAY_KINDS = [
+  ['business', 'Business days'],
+  ['calendar', 'Calendar days'],
+];
+
+function taskTypePairs(taskTypes) {
+  if (taskTypes?.length) return taskTypes.map((t) => [t.key, t.label]);
+  return FALLBACK_TASK_TYPES;
+}
+
 function optionList(pairs, selected) {
   return pairs
     .map(
@@ -175,10 +187,13 @@ function optionList(pairs, selected) {
     .join('');
 }
 
-function gateDrawer(item, deps, allItems, expanded) {
+function gateDrawer(item, deps, allItems, expanded, taskTypes = []) {
   if (!expanded) return '';
 
   const attrs = item.attributes || {};
+  const matchedType = taskTypes.find((t) => t.key === (attrs.task_type || 'general'));
+  const hasTemplate = (matchedType?.gate_templates?.length || 0) > 0;
+
   const itemOptions = (selectedId) =>
     allItems
       .filter((p) => p.id !== item.id)
@@ -243,7 +258,12 @@ function gateDrawer(item, deps, allItems, expanded) {
               <div class="gate-drawer-title">Gates</div>
               <p class="gate-drawer-hint">Things that must happen before this row can start. Each open gate pushes the ready-to-start date out.</p>
             </div>
-            <button type="button" class="btn btn-ghost btn-sm" data-add-gate="${escapeHtml(item.id)}">+ Add a gate</button>
+            <div class="btn-row">
+              ${hasTemplate
+                ? `<button type="button" class="btn btn-ghost btn-sm" data-apply-gate-template="${escapeHtml(item.id)}" data-task-type-id="${escapeHtml(matchedType.id)}">Apply gate template</button>`
+                : ''}
+              <button type="button" class="btn btn-ghost btn-sm" data-add-gate="${escapeHtml(item.id)}">+ Add a gate</button>
+            </div>
           </div>
 
           ${gates || '<p class="field-hint">No gates on this row — it can start as soon as you are ready.</p>'}
@@ -255,6 +275,7 @@ function gateDrawer(item, deps, allItems, expanded) {
 export function renderPlannerView({ state }) {
   const activeScenario = state.scenarios.find((s) => s.id === state.activeScenarioId);
   const isLive = activeScenario?.status === 'active';
+  const typePairs = taskTypePairs(state.taskTypes);
 
   const depsByItem = new Map();
   for (const dep of state.dependencies || []) {
@@ -289,7 +310,7 @@ export function renderPlannerView({ state }) {
           <input class="input input-sm" data-field="title" value="${escapeHtml(item.title)}" aria-label="Title" />
         </td>
         <td>
-          <select class="input input-sm" data-field="task_type" aria-label="Type">${optionList(TASK_TYPES, attrs.task_type || 'general')}</select>
+          <select class="input input-sm" data-field="task_type" aria-label="Type">${optionList(typePairs, attrs.task_type || 'general')}</select>
         </td>
         <td>
           <input class="input input-sm" data-field="work_hours" type="number" step="0.5" min="0"
@@ -317,7 +338,7 @@ export function renderPlannerView({ state }) {
           </button>
         </td>
       </tr>
-      ${gateDrawer(item, deps, state.planItems, expanded)}`;
+      ${gateDrawer(item, deps, state.planItems, expanded, state.taskTypes || [])}`;
     })
     .join('');
 
@@ -393,7 +414,7 @@ export function renderPlannerView({ state }) {
         </label>
         <label class="field">
           <span class="field-label">Type</span>
-          <select id="new-item-type" class="input">${optionList(TASK_TYPES, 'general')}</select>
+          <select id="new-item-type" class="input">${optionList(typePairs, 'general')}</select>
         </label>
         <label class="field">
           <span class="field-label">Hours</span>
@@ -817,6 +838,147 @@ export function renderTeamView({ state }) {
              : '<p class="field-hint" style="margin-top:14px">Nothing booked yet.</p>'}
          </section>`
       : ''}
+  `;
+}
+
+/* ── Task types ────────────────────────────────────────────────────────── */
+
+export function renderTaskTypesView({ state }) {
+  const types = state.taskTypes || [];
+  const expanded = state.expandedTaskTypes || new Set();
+
+  const rows = types
+    .map((t) => {
+      const open = expanded.has(t.id);
+      const steps = t.gate_templates || [];
+      const stepRows = steps
+        .map(
+          (s, i) => `
+        <tr data-step-id="${escapeHtml(s.id)}" data-type-id="${escapeHtml(t.id)}">
+          <td class="planner-num">${i + 1}</td>
+          <td>
+            <input class="input input-sm" data-step-field="label" value="${escapeHtml(s.label || '')}" aria-label="Step name" />
+          </td>
+          <td>
+            <input class="input input-sm" data-step-field="duration_days" type="number" step="0.5" min="0.5"
+              value="${s.duration_days ?? 1}" aria-label="Duration" style="max-width:90px" />
+          </td>
+          <td>
+            <select class="input input-sm" data-step-field="day_kind" aria-label="Day kind">${optionList(DAY_KINDS, s.day_kind || 'business')}</select>
+          </td>
+          <td>
+            <select class="input input-sm" data-step-field="dep_type" aria-label="Gate kind">${optionList(GATE_TYPES, s.dep_type || 'input_ready')}</select>
+          </td>
+          <td class="planner-actions">
+            <button type="button" class="btn-icon" data-delete-step="${escapeHtml(s.id)}" data-type-id="${escapeHtml(t.id)}" aria-label="Remove step">
+              <span aria-hidden="true">×</span>
+            </button>
+          </td>
+        </tr>`,
+        )
+        .join('');
+
+      return `
+      <tr data-id="${escapeHtml(t.id)}">
+        <td>
+          <button type="button" class="gate-toggle" data-toggle-type="${escapeHtml(t.id)}" aria-expanded="${open}">
+            <span class="gate-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>
+            ${steps.length ? `${steps.length} step${steps.length === 1 ? '' : 's'}` : 'No steps'}
+          </button>
+        </td>
+        <td>
+          <input class="input input-sm" data-field="label" value="${escapeHtml(t.label)}" aria-label="Type name" />
+          <div class="field-hint" style="margin-top:4px">Key: <code>${escapeHtml(t.key)}</code></div>
+        </td>
+        <td class="planner-actions">
+          <button type="button" class="btn-icon" data-delete-task-type="${escapeHtml(t.id)}" aria-label="Delete ${escapeHtml(t.label)}">
+            <span aria-hidden="true">×</span>
+          </button>
+        </td>
+      </tr>
+      ${open
+        ? `<tr class="gate-drawer" data-drawer-for="${escapeHtml(t.id)}">
+             <td colspan="3">
+               <div class="gate-drawer-inner">
+                 <div class="gate-drawer-head">
+                   <div>
+                     <div class="gate-drawer-title">Gate template</div>
+                     <p class="gate-drawer-hint">Ordered steps applied to a work item. Durations chain from an anchor date (usually the item's start date).</p>
+                   </div>
+                 </div>
+                 <div class="quick-add" style="grid-template-columns:minmax(0,2fr) minmax(0,0.8fr) minmax(0,1.2fr) auto;margin-bottom:14px">
+                   <label class="field">
+                     <span class="field-label">Step name</span>
+                     <input class="input" data-new-step-label="${escapeHtml(t.id)}" placeholder="e.g. Obtain population" autocomplete="off" />
+                   </label>
+                   <label class="field">
+                     <span class="field-label">Days</span>
+                     <input class="input" data-new-step-days="${escapeHtml(t.id)}" type="number" step="0.5" min="0.5" value="7" />
+                   </label>
+                   <label class="field">
+                     <span class="field-label">Count as</span>
+                     <select class="input" data-new-step-kind="${escapeHtml(t.id)}">${optionList(DAY_KINDS, 'business')}</select>
+                   </label>
+                   <button type="button" class="btn btn-ghost" data-add-step="${escapeHtml(t.id)}">Add step</button>
+                 </div>
+                 ${steps.length
+                   ? `<div class="table-scroll">
+                        <table class="table">
+                          <thead><tr><th></th><th>What</th><th>Days</th><th>Count as</th><th>Kind</th><th></th></tr></thead>
+                          <tbody>${stepRows}</tbody>
+                        </table>
+                      </div>`
+                   : '<p class="field-hint">No steps yet — add the sequence this type always needs.</p>'}
+               </div>
+             </td>
+           </tr>`
+        : ''}`;
+    })
+    .join('');
+
+  return `
+    <div class="page-bar">
+      <div class="page-head">
+        <p class="eyebrow">Task types</p>
+        <h1 class="page-title">Kinds of work</h1>
+        <p class="page-lead">
+          Custom types for the Planner dropdown. Attach an ordered gate template to any type,
+          then apply it to a work item in one click.
+        </p>
+      </div>
+      <div class="btn-row">
+        ${state.taskTypesDirty ? '<span class="dirty-flag">Unsaved changes</span>' : ''}
+        <button type="button" class="btn btn-primary" id="save-task-types"${state.taskTypesDirty ? '' : ' disabled'}>Save changes</button>
+      </div>
+    </div>
+
+    <section class="panel">
+      <h2 class="section-title" style="margin-bottom:12px">Add a type</h2>
+      <div class="quick-add" style="grid-template-columns:minmax(0,2fr) auto">
+        <label class="field">
+          <span class="field-label">Name</span>
+          <input id="new-task-type-label" class="input" placeholder="e.g. Control Testing" autocomplete="off" />
+        </label>
+        <button type="button" class="btn btn-primary" id="add-task-type">Add</button>
+      </div>
+      <p class="field-hint" style="margin-top:10px">
+        A key is generated from the name (e.g. Control Testing → control_testing) and stored on plan rows.
+      </p>
+    </section>
+
+    ${types.length
+      ? `<section class="panel panel-flush">
+           <div class="table-scroll">
+             <table class="table" id="task-types-table">
+               <thead><tr><th>Template</th><th>Type</th><th></th></tr></thead>
+               <tbody>${rows}</tbody>
+             </table>
+           </div>
+         </section>`
+      : `<div class="empty">
+           <span class="empty-title">No types yet</span>
+           <p class="empty-body">Add your first type above. The usual defaults appear once this workspace loads its catalog.</p>
+         </div>`}
   `;
 }
 
